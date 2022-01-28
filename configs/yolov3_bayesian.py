@@ -1,7 +1,16 @@
 _base_ = '../mmdetection/configs/yolo/yolov3_d53_mstrain-608_273e_coco.py'
 
+# import modified neck, with dropout layers
+custom_imports = dict(
+    imports=['mmdet.models.necks.yolo_neck_bayesian'],
+    allow_failed_imports=False
+)
+
 # model settings
 model = dict(
+    neck=dict(
+        type='YOLOV3BayesianNeck'
+    ),
     bbox_head=dict(
         num_classes=6
     )

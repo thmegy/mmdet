@@ -1,4 +1,4 @@
-_base_ = '../mmdetection/configs/yolo/yolov3_d53_mstrain-608_273e_coco.py'
+_base_ = '../mmdetection/configs/yolo/yolov3_d53_fp16_mstrain-608_273e_coco.py'
 
 # import modified neck, with dropout layers
 custom_imports = dict(
@@ -19,28 +19,28 @@ model = dict(
 # data settings
 dataset_type = 'CocoDataset'
 classes = ('Arrachement_pelade', 'Faiencage', 'Nid_de_poule', 'Transversale', 'Longitudinale', 'Reparation')
-data_root = 'data/cracks/'
+data_root = 'data/'
 data = dict(
-    samples_per_gpu=6,
-    workers_per_gpu=4,
+    samples_per_gpu=22,
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'coco_train.json',
-        img_prefix=data_root + 'yolo/',
+        ann_file=data_root + 'cracks_train.json',
+        img_prefix='/home/finn/DATASET/Logiroad_6_classes_7231/',
         classes=classes,
 #        pipeline=train_pipeline
     ),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'coco_val.json',
-        img_prefix=data_root + 'yolo/',
+        ann_file=data_root + 'cracks_val.json',
+        img_prefix='/home/finn/DATASET/Logiroad_6_classes_7231/',
         classes=classes,
 #        pipeline=test_pipeline
     ),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'coco_val.json',
-        img_prefix=data_root + 'yolo/',
+        ann_file=data_root + 'cracks_val.json',
+        img_prefix='/home/finn/DATASET/Logiroad_6_classes_7231/',
         classes=classes,
 #        pipeline=test_pipeline
     )
@@ -52,11 +52,11 @@ log_config = dict(
 )
 
 # training parameters
-load_from='checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth'
+#load_from='checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth'
 #load_from='outputs/yolov3/latest.pth'
-checkpoint_config = dict(interval=10) # save checkpoint every 10 epochs
-evaluation = dict(interval=5)
+checkpoint_config = dict(interval=25) # save checkpoint every 10 epochs
+evaluation = dict(interval=10)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.
-optimizer = dict(type='SGD', lr=0.001/8, momentum=0.9, weight_decay=0.0005)
-runner = dict(type='EpochBasedRunner', max_epochs=75)
+optimizer = dict(type='SGD', lr=0.001*44/64, momentum=0.9, weight_decay=0.0005)
+#runner = dict(type='EpochBasedRunner', max_epochs=75)

@@ -13,6 +13,10 @@ model = dict(
     ),
     bbox_head=dict(
         num_classes=6
+    ),
+    test_cfg = dict(
+        enable_dropout = True,
+        n_MC_samples = 20
     )
 )
 

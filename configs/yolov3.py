@@ -9,6 +9,11 @@ model = dict(
             use_sigmoid=True, # False to use softmax
             loss_weight=1.0,
             reduction='sum'
+        ),
+        anchor_generator=dict(
+            base_sizes=[[(403, 99), (156, 220), (113, 109)],
+                        [(64, 185), (249, 37), (60, 80)],
+                        [(94, 26), (32, 77), (24, 28)]]
         )
     )
 )

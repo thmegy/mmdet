@@ -3,7 +3,13 @@ _base_ = '../mmdetection/configs/yolo/yolov3_d53_fp16_mstrain-608_273e_coco.py'
 # model settings
 model = dict(
     bbox_head=dict(
-        num_classes=6
+        num_classes=6,
+        loss_cls=dict(
+            type='CrossEntropyLoss',
+            use_sigmoid=True, # False to use softmax
+            loss_weight=1.0,
+            reduction='sum'
+        )
     )
 )
 

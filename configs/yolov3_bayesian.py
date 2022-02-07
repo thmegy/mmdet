@@ -22,10 +22,6 @@ model = dict(
             loss_weight=1.0,
             reduction='sum'
         )   
-    ),
-    test_cfg = dict(
-        enable_dropout = True,
-        n_MC_samples = 20
     )
 )
 

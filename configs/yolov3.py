@@ -14,6 +14,17 @@ model = dict(
             base_sizes=[[(403, 99), (156, 220), (113, 109)],
                         [(64, 185), (249, 37), (60, 80)],
                         [(94, 26), (32, 77), (24, 28)]]
+        ),
+        test_cfg = dict(
+            active_learning = dict(
+                score_method = 'MarginSampling',
+                aggregation_method = 'sum',
+                selection_method = 'batch',
+                n_sel = 5,
+                selection_kwargs = dict(
+                    n_batch = 3,
+                    )
+                )
         )
     )
 )
@@ -60,5 +71,5 @@ checkpoint_config = dict(interval=25) # save checkpoint every 10 epochs
 evaluation = dict(interval=10)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.
-optimizer = dict(type='SGD', lr=0.001*10/64, momentum=0.9, weight_decay=0.0005)
+optimizer = dict(type='SGD', lr=0.001*20/64, momentum=0.9, weight_decay=0.0005)
 #runner = dict(type='EpochBasedRunner', max_epochs=75)

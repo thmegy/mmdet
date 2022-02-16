@@ -9,6 +9,14 @@ import torch
 
 
 
+def select_random(n_pool, n_sel):
+    '''
+    Select randomly images from pool.
+    '''
+    return torch.randint(n_pool, (n_sel,))
+
+
+
 def main(args):    
     config = mmcv.Config.fromfile(args.config)
     test_cfg = config.model.bbox_head.test_cfg
@@ -41,21 +49,24 @@ def main(args):
 
     # loop over active learning iterations
     for ir in range(args.n_round):
-        # inference over pool images
-        detector = mmdet.apis.init_detector(
-            config_AL,
-            f'{workdir}/latest.pth',
-            device='cuda:0',
-        )
-        img_n_batch = 100
-        pool_img_batch = np.array_split( np.array(pool_img), img_n_batch )
-        uncertainty = []
-        for img_batch in pool_img_batch:
-            uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
-        uncertainty = torch.concat(uncertainty)
+        if test_cfg.active_learning.selection_method == 'random':
+            selection = select_random(len(pool_img), test_cfg.active_learning.n_sel)
+        else:
+            # inference over pool images
+            detector = mmdet.apis.init_detector(
+                config_AL,
+                f'{workdir}/latest.pth',
+                device='cuda:0',
+            )
+            img_n_batch = 100
+            pool_img_batch = np.array_split( np.array(pool_img), img_n_batch )
+            uncertainty = []
+            for img_batch in pool_img_batch:
+                uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
+            uncertainty = torch.concat(uncertainty)
 
-        # select images to be added to the training set
-        selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs)
+            # select images to be added to the training set
+            selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs)
 
         # update training set and pool according to selected images
         sel_id = []

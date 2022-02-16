@@ -70,12 +70,12 @@ def main(args):
 
         # update training set and pool according to selected images
         sel_id = []
-        for idx in selection:
+        for idx in selection.sort(descending=True)[0]:
             train['images'].append( pool['images'][idx] )
-            pool['images'].remove( pool['images'][idx] )
-
-            pool_img.remove( pool_img[idx] )
             sel_id.append( pool['images'][idx]['id'] )
+
+            pool['images'].remove( pool['images'][idx] )
+            pool_img.remove( pool_img[idx] )
 
         # Pick annotations corresponding to selected images
         for annot in pool["annotations"]:
@@ -90,11 +90,20 @@ def main(args):
             json.dump(train, f_out)
 
         # training with updated set
-        config.data.train.ann_file = train_set_name.replace('init.json', f'{ir}.json')
+        config.data.train.ann_file = train_set_name.replace('init.json', f'{ir}.json') # use updated training set
+        config.load_from = f'{workdir}/latest.pth' # checkpoint from previous iteration
+        config.runner['max_epochs'] = args.n_epoch
         mmcv.Config.dump(config, config_AL)
-        workdir = f'{args.work_dir}/{test.cfg.score_method}/{test.cfg.aggregation_method}/{test.cfg.selection_method}/round_{ir}/'
-        # TO DO: update load_from and n_epoch
-        os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/' )
+
+        if test_cfg.active_learning.selection_method == 'random':
+            workdir = f'{args.work_dir}/{test_cfg.active_learning.selection_method}/round_{ir}/'
+        else:
+            workdir = f'{args.work_dir}/{test_cfg.active_learning.score_method}/{test_cfg.active_learning.aggregation_method}/{test_cfg.active_learning.selection_method}/round_{ir}/'
+
+        os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}' )
+
+        # test
+        os.system( f'python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
 
 
         
@@ -103,7 +112,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, help='mmdetection config')
     parser.add_argument('--work-dir', required=True, help='output directory')
-    parser.add_argument('--n_round', default=10, type=int, help='Number of iterations for active learning')
+    parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
+    parser.add_argument('--n-epoch', default=5, type=int, help='Number of epochs to update training at each iteration')
     parser.add_argument('--do_split', action='store_true', help='Split original training set into starting training set and pool set')
     parser.add_argument('--ratio', default='0.9', help='The pool will be ratio * N(images) in original training set')
     parser.add_argument('--do_init_train', action='store_true', help='Perform initial training')

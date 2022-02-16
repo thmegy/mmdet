@@ -19,7 +19,7 @@ model = dict(
             active_learning = dict(
                 score_method = 'MarginSampling',
                 aggregation_method = 'sum',
-                selection_method = 'batch',
+                selection_method = 'random',
                 n_sel = 100,
                 selection_kwargs = dict(
                     n_batch = 10,
@@ -61,7 +61,8 @@ data = dict(
 
 # add tensorboard
 log_config = dict(
-    hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
+    hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")],
+    interval=15
 )
 
 # training parameters
@@ -70,5 +71,5 @@ checkpoint_config = dict(interval=25) # save checkpoint every 10 epochs
 evaluation = dict(interval=5)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.
-optimizer = dict(type='SGD', lr=0.001*40/64, momentum=0.9, weight_decay=0.0005)
-runner = dict(type='EpochBasedRunner', max_epochs=5)
+optimizer = dict(type='SGD', lr=0.001*20/64, momentum=0.9, weight_decay=0.0005)
+#runner = dict(type='EpochBasedRunner', max_epochs=5)

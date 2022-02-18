@@ -6,6 +6,8 @@ import json
 from mmdet.utils import select_images
 import numpy as np
 import torch
+import tqdm
+os.environ['MKL_THREADING_LAYER'] = 'GNU'
 
 
 
@@ -36,7 +38,10 @@ def main(args):
     workdir = f'{args.work_dir}/init_training/'
     mmcv.Config.dump(config, config_AL)
     if args.do_init_train or not os.path.isfile(f'{workdir}/latest.pth'):
-        os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/' )
+        if args.n_gpu == 1:
+            os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/' )
+        else:
+            os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/' )
 
     # create list of pool images
     with open(pool_set_name, 'rt') as f:
@@ -49,6 +54,7 @@ def main(args):
 
     # loop over active learning iterations
     for ir in range(args.n_round):
+        print(f'\nRound {ir}\n')
         if test_cfg.active_learning.selection_method == 'random':
             selection = select_random(len(pool_img), test_cfg.active_learning.n_sel)
         else:
@@ -58,13 +64,19 @@ def main(args):
                 f'{workdir}/latest.pth',
                 device='cuda:0',
             )
-            img_n_batch = 100
-            pool_img_batch = np.array_split( np.array(pool_img), img_n_batch )
+            
+            # split images into batches to run the inference
+            img_batch_size = 50
+            img_n_batch = len(pool_img) // img_batch_size
+            img_batches = np.array_split( np.array(pool_img), img_n_batch )
             uncertainty = []
-            for img_batch in pool_img_batch:
+            print('\nRunning inference on pool set')
+            for img_batch in tqdm.tqdm(img_batches):
                 uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
             uncertainty = torch.concat(uncertainty)
 
+            torch.cuda.empty_cache()
+            del detector
             # select images to be added to the training set
             selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs)
 
@@ -100,7 +112,10 @@ def main(args):
         else:
             workdir = f'{args.work_dir}/{test_cfg.active_learning.score_method}/{test_cfg.active_learning.aggregation_method}/{test_cfg.active_learning.selection_method}/round_{ir}/'
 
-        os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}' )
+        if args.n_gpu == 1:
+            os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/' )
+        else:
+            os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/' )
 
         # test
         os.system( f'python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
@@ -114,8 +129,11 @@ if __name__ == '__main__':
     parser.add_argument('--work-dir', required=True, help='output directory')
     parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
     parser.add_argument('--n-epoch', default=5, type=int, help='Number of epochs to update training at each iteration')
+    parser.add_argument('--n-gpu', default=1, type=int, help='Number of GPUs to use')
+
     parser.add_argument('--do_split', action='store_true', help='Split original training set into starting training set and pool set')
     parser.add_argument('--ratio', default='0.9', help='The pool will be ratio * N(images) in original training set')
+
     parser.add_argument('--do_init_train', action='store_true', help='Perform initial training')
 
     args = parser.parse_args()

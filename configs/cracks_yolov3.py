@@ -22,7 +22,7 @@ model = dict(
                 selection_method = 'random',
                 n_sel = 100,
                 selection_kwargs = dict(
-                    n_batch = 10,
+                    batch_size = 10,
                 )
             )
         )
@@ -62,12 +62,12 @@ data = dict(
 # add tensorboard
 log_config = dict(
     hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")],
-    interval=15
+    interval=8
 )
 
 # training parameters
 load_from='checkpoints/yolov3_d53_fp16_mstrain-608_273e_coco_20210517_213542-4bc34944.pth'
-checkpoint_config = dict(interval=25) # save checkpoint every 10 epochs
+checkpoint_config = dict(interval=25) # save checkpoint every 25 epochs
 evaluation = dict(interval=5)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.

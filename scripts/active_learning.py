@@ -23,11 +23,12 @@ def main(args):
     config_AL = args.config.replace('.py', '_AL.py')
     if args.auto_resume:
         config = mmcv.Config.fromfile(config_AL)
+        train_set_name = config.data.train.ann_file
+        pool_set_name = train_set_name.replace('AL', 'AL_pool')
     else:
         config = mmcv.Config.fromfile(args.config)
     
         train_set_orig = config.data.train.ann_file
-        img_path = config.data.train.img_prefix
         train_set_name = train_set_orig.replace('.json', '_AL_init.json')
         pool_set_name = train_set_orig.replace('.json', '_AL_pool_init.json')
 
@@ -45,13 +46,14 @@ def main(args):
             else:
                 os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/' )
 
-        # create list of pool images
-        with open(pool_set_name, 'rt') as f:
-            pool = json.load(f)
-            pool_img = [os.path.join(img_path, im['file_name']) for im in pool['images']]
+    # create list of pool images
+    img_path = config.data.train.img_prefix
+    with open(pool_set_name, 'rt') as f:
+        pool = json.load(f)
+        pool_img = [os.path.join(img_path, im['file_name']) for im in pool['images']]
 
-        with open(train_set_name, 'rt') as f:
-            train = json.load(f)
+    with open(train_set_name, 'rt') as f:
+        train = json.load(f)
 
     test_cfg = config.model.bbox_head.test_cfg
 

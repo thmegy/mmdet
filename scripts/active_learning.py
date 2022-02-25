@@ -21,6 +21,7 @@ def select_random(n_pool, n_sel):
 
 def main(args):    
     config_AL = args.config.replace('.py', '_AL.py')
+
     if args.auto_resume:
         config = mmcv.Config.fromfile(config_AL)
         train_set_name = config.data.train.ann_file
@@ -115,9 +116,10 @@ def main(args):
 
             # training with updated set
             config.data.train.ann_file = train_set_name.replace('init.json', f'{ir}.json') # use updated training set
-            if args.do_incremental_learning:
+            if args.incremental_learning:
                 config.load_from = f'{workdir}/latest.pth' # checkpoint from previous iteration
-                config.runner['max_epochs'] = args.n_epoch
+                config.runner = dict(type='IterBasedRunner', max_iters=args.n_iter)
+                config.evaluation['interval'] = 25
             mmcv.Config.dump(config, config_AL)
 
         if test_cfg.active_learning.selection_method == 'random':
@@ -125,16 +127,17 @@ def main(args):
         else:
             workdir = f'{args.work_dir}/{test_cfg.active_learning.score_method}/{test_cfg.active_learning.aggregation_method}/{test_cfg.active_learning.selection_method}/{test_cfg.active_learning.n_sel}/round_{ir}/'
 
+
+        options = f' --work-dir {workdir}/'
         if args.auto_resume and ir == args.resume_round:
-            if args.n_gpu == 1:
-                os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/ --auto-resume' )
-            else:
-                os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/ --auto-resume' )
+            options += f' --auto-resume'
+        if args.incremental_learning:
+            options += ' --incremental-learning'
+
+        if args.n_gpu > 1:
+            os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} {options}' )
         else:
-            if args.n_gpu == 1:
-                os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/' )
-            else:
-                os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/' )
+            os.system( f'python mmdetection/tools/train.py {config_AL} {options}' )
 
         # test
         os.system( f'python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
@@ -149,13 +152,13 @@ if __name__ == '__main__':
     parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
     parser.add_argument('--n-gpu', default=1, type=int, help='Number of GPUs to use')
 
-    parser.add_argument('--do_split', action='store_true', help='Split original training set into starting training set and pool set')
+    parser.add_argument('--do-split', action='store_true', help='Split original training set into starting training set and pool set')
     parser.add_argument('--ratio', default='0.9', help='The pool will be ratio * N(images) in original training set')
 
-    parser.add_argument('--do_init_train', action='store_true', help='Perform initial training')
+    parser.add_argument('--do-init-train', action='store_true', help='Perform initial training')
 
-    parser.add_argument('--do-incremental-learning', action='store_true', help='Do not train from scratch at each round, start from latest checkpoint of previous round')
-    parser.add_argument('--n-epoch', default=5, type=int, help='Number of epochs to update training at each iteration')
+    parser.add_argument('--incremental-learning', action='store_true', help='Do not train from scratch at each round, start from latest checkpoint of previous round')
+    parser.add_argument('--n-iter', default=100, type=int, help='Number of training iteration at each round')
 
     parser.add_argument('--auto-resume', action='store_true', help='Resume training from latest checkpoint of round given in --resume-round')
     parser.add_argument('--resume-round', default=0, type=int, help='Round to resume from if --auto-resume is used')

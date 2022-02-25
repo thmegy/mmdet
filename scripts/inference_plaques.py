@@ -9,6 +9,21 @@ import tqdm
 
 
 
+map_class_id = { # key = class, item = id
+    '0' : 9,
+    '1' : 0,
+    '2' : 1,
+    '3' : 2,
+    '4' : 3,
+    '5' : 4,
+    '6' : 5,
+    '7' : 6,
+    '8' : 7,
+    '9' : 8,
+    }
+
+
+
 def get_pred_numbers(predictions, threshold):
     classes = ('1', '2', '3', '4', '5', '6', '7', '8', '9', '0')
 
@@ -72,25 +87,29 @@ def main(args):
             for ip, p in enumerate(pred): # loop on bboxes
                 x1, y1, x2, y2 = p
                 cropped_image = image[y1:y2, x1:x2] # crop image to keep only bbox around plaque
-                cropped_image_path = im.replace(args.im_dir, f'{args.viz_dir}/cropped/').replace('.jpg', f'_crop_{ip}.jpg')
-                cv.imwrite(cropped_image_path, cropped_image)
+                cropped_image_path_raw = im.replace(args.im_dir, f'{args.viz_dir}/cropped/raw/').replace('.jpg', f'_crop_{ip}.jpg')
+                cv.imwrite(cropped_image_path_raw, cropped_image)
             
-                pred_numbers = mmdet.apis.inference_detector(detector_number, cropped_image_path) # perform inference --> find numbers
+                pred_numbers = mmdet.apis.inference_detector(detector_number, cropped_image_path_raw) # perform inference --> find numbers
                 pred_numbers_filter = get_pred_numbers(pred_numbers, args.score_threshold)
                 pred_list.append( {'bbox':p.tolist(), 'numbers':pred_numbers_filter} )
 
-                cv.rectangle(image, (x1, y1), (x2, y2), (20, 46, 209), 2)
+                f_ann = open(cropped_image_path_raw.replace('jpg', 'txt'), 'w') # file with annotations (yolo style)
+                
+                cv.rectangle(image, (x1, y1), (x2, y2), (20, 46, 209), 2) # draw detected plaque
                 # draw number bboxes
                 for num, bbox_list in pred_numbers_filter.items():
                     for coord in bbox_list:
-                        cv.rectangle(image, (x1+coord[0], y1+coord[1]), (x1+coord[2], y1+coord[3]), (38, 105, 38), 2)
-                        cv.putText(image, num, (x1+coord[0], y1+coord[1]), cv.FONT_HERSHEY_SIMPLEX, 0.9, (38, 105, 38), 2, cv.LINE_AA)
-
+                        cv.rectangle(image, (x1+coord[0], y1+coord[1]), (x1+coord[2], y1+coord[3]), (38, 105, 38), 2) # draw bbox around detected number
+                        cv.putText(image, num, (x1+coord[0], y1+coord[1]), cv.FONT_HERSHEY_SIMPLEX, 0.9, (38, 105, 38), 2, cv.LINE_AA) # write detected number
+                        f_ann.write(f'{map_class_id[str(num)]} {(coord[0]+coord[2])/(2*cropped_image.shape[1]):.5f} {(coord[1]+coord[3])/(2*cropped_image.shape[0]):.5f} {(coord[2]-coord[0])/cropped_image.shape[1]:.5f} {(coord[3]-coord[1])/cropped_image.shape[0]:.5f}\n')
+            f_ann.close()
+                
             cv.imwrite(im.replace(args.im_dir, args.viz_dir), image)
-            cropped_image = image[int(0.9*y1):int(1.1*y2), int(0.9*x1):int(1.1*x2)] # take some margin around bbox
-            cropped_image_path = im.replace(args.im_dir, f'{args.viz_dir}/cropped/').replace('.jpg', f'_crop_{ip}.jpg')
-            cv.imwrite(cropped_image_path, cropped_image)
-            out_dict[im.replace(args.im_dir, '')] = pred_list
+            cropped_image = image[int(0.9*y1):int(1.1*y2), int(0.9*x1):int(1.1*x2)] # take some margin around bbox for esthetics
+            cropped_image_path_vis = cropped_image_path_raw.replace('raw', 'visualisation')
+            cv.imwrite(cropped_image_path_vis, cropped_image)
+            out_dict[im.replace(args.im_dir, '')] = pred_list # fill results summary
         
     with open(f'{args.viz_dir}/results.json', 'w') as out_f:
         json.dump(out_dict, out_f)
@@ -109,6 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("--score-threshold", type=float, default=0.5, help="bbox score threshold")
     args = parser.parse_args()
 
-    os.makedirs(f'{args.viz_dir}/cropped/', exist_ok=True)
+    os.makedirs(f'{args.viz_dir}/cropped/visualisation/', exist_ok=True)
+    os.makedirs(f'{args.viz_dir}/cropped/raw/', exist_ok=True)
 
     main(args)

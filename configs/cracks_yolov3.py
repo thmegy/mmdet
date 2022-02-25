@@ -19,11 +19,12 @@ model = dict(
             active_learning = dict(
                 score_method = 'MarginSampling',
                 aggregation_method = 'sum',
-                selection_method = 'random',
+                selection_method = 'batch',
                 n_sel = 100,
                 selection_kwargs = dict(
                     batch_size = 10,
-                )
+                ),
+                alpha = 0.5 # proba for sampler used if incremental learning
             )
         )
     )
@@ -67,8 +68,8 @@ log_config = dict(
 
 # training parameters
 load_from='checkpoints/yolov3_d53_fp16_mstrain-608_273e_coco_20210517_213542-4bc34944.pth'
-checkpoint_config = dict(interval=25) # save checkpoint every 25 epochs
-evaluation = dict(interval=5)
+checkpoint_config = dict(interval=50) # save checkpoint every 25 epochs
+evaluation = dict(interval=10)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.
 optimizer = dict(type='SGD', lr=0.001*20/64, momentum=0.9, weight_decay=0.0005)

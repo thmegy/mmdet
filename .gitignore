@@ -4,3 +4,4 @@ outputs/
 *~
 evaluation/
 inference/
+configs/*_AL.py

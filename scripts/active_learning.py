@@ -119,7 +119,7 @@ def main(args):
             if args.incremental_learning:
                 config.load_from = f'{workdir}/latest.pth' # checkpoint from previous iteration
                 config.runner = dict(type='IterBasedRunner', max_iters=args.n_iter)
-                config.evaluation['interval'] = 25
+                config.evaluation['interval'] = 50
             mmcv.Config.dump(config, config_AL)
 
         if test_cfg.active_learning.selection_method == 'random':

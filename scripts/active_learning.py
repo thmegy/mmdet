@@ -91,21 +91,19 @@ def main(args):
                     if test_cfg.active_learning.selection_method == 'CoreSet':
                         unc, rep = mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True, repr_selection=True)
                         uncertainty.append(unc)
-                        rep.reshape(rep.shape[1]*rep.shape[2]*rep.shape[3])
                         representation.append(rep)
                     else:
                         uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
 
                 uncertainty = torch.concat(uncertainty)
                 if test_cfg.active_learning.selection_method == 'CoreSet':
-                    representation = torch.concat(rep)
-                    test_cfg.active_learning.selection_kwargs['embedding'] = representation
+                    representation = torch.concat(representation)
 
                 torch.cuda.empty_cache()
                 del detector
                 # select images to be added to the training set
-                selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs)
-
+                selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs, embedding=representation)
+                
             # update training set and pool according to selected images
             sel_id = []
             for idx in selection.sort(descending=True)[0]:
@@ -139,8 +137,7 @@ def main(args):
             workdir = f'{args.work_dir}/{test_cfg.active_learning.selection_method}/{test_cfg.active_learning.n_sel}/round_{ir}/'
         else:
             workdir = f'{args.work_dir}/{test_cfg.active_learning.score_method}/{test_cfg.active_learning.aggregation_method}/{test_cfg.active_learning.selection_method}/{test_cfg.active_learning.n_sel}/round_{ir}/'
-
-
+            
         options = f' --work-dir {workdir}/'
         if args.auto_resume and ir == args.resume_round:
             options += f' --auto-resume'

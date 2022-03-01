@@ -82,11 +82,24 @@ def main(args):
                 img_batch_size = 50
                 img_n_batch = len(pool_img) // img_batch_size
                 img_batches = np.array_split( np.array(pool_img), img_n_batch )
+
                 uncertainty = []
+                representation = []
+                
                 print('\nRunning inference on pool set')
                 for img_batch in tqdm.tqdm(img_batches):
-                    uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
+                    if test_cfg.active_learning.selection_method == 'CoreSet':
+                        unc, rep = mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True, repr_selection=True)
+                        uncertainty.append(unc)
+                        rep.reshape(rep.shape[1]*rep.shape[2]*rep.shape[3])
+                        representation.append(rep)
+                    else:
+                        uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
+
                 uncertainty = torch.concat(uncertainty)
+                if test_cfg.active_learning.selection_method == 'CoreSet':
+                    representation = torch.concat(rep)
+                    test_cfg.active_learning.selection_kwargs['embedding'] = representation
 
                 torch.cuda.empty_cache()
                 del detector

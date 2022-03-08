@@ -25,7 +25,8 @@ line_style = { # aggregation method
 marker_style = { # selection method
     'random' : '.',
     'maximum' : 's',
-    'batch' : 'o'
+    'batch' : 'o',
+    'CoreSet' : '^'
     }
 
 

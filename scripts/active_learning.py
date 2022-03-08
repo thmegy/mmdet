@@ -57,6 +57,10 @@ def main(args):
         train = json.load(f)
 
     test_cfg = config.model.bbox_head.test_cfg
+    if test_cfg.active_learning.selection_method == 'random':
+        method = 'random'
+    else:
+        method = f'{test_cfg.active_learning.score_method}_{test_cfg.active_learning.aggregation_method}_{test_cfg.active_learning.selection_method}'
 
     # loop over active learning iterations
     if args.auto_resume:
@@ -75,7 +79,7 @@ def main(args):
                 detector = mmdet.apis.init_detector(
                     config_AL,
                     f'{workdir}/latest.pth',
-                    device='cuda:0',
+                    device=f'cuda:{args.gpu_id}',
                 )
                 
                 # split images into batches to run the inference
@@ -120,24 +124,28 @@ def main(args):
                     pool["annotations"].remove(annot)
 
             # save new train and pool sets
-            with open(pool_set_name.replace('init.json', f'{ir}.json'), "wt") as f_out:
-                json.dump(pool, f_out)
-            with open(train_set_name.replace('init.json', f'{ir}.json'), "wt") as f_out:
-                json.dump(train, f_out)
+            if args.auto_resume:
+                with open(pool_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:
+                    json.dump(pool, f_out)
+                with open(train_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:
+                    json.dump(train, f_out)
+                config.data.train.ann_file = train_set_name.replace(f'{args.resume_round}.json', f'{ir}.json') # use updated training set
+            else:
+                with open(pool_set_name.replace('init.json', f'{method}_{ir}.json'), "wt") as f_out:
+                    json.dump(pool, f_out)
+                with open(train_set_name.replace('init.json', f'{method}_{ir}.json'), "wt") as f_out:
+                    json.dump(train, f_out)
+                config.data.train.ann_file = train_set_name.replace('init.json', f'{method}_{ir}.json') # use updated training set
 
             # training with updated set
-            config.data.train.ann_file = train_set_name.replace('init.json', f'{ir}.json') # use updated training set
             if args.incremental_learning:
                 config.load_from = f'{workdir}/latest.pth' # checkpoint from previous iteration
                 config.runner = dict(type='IterBasedRunner', max_iters=args.n_iter)
-                config.evaluation['interval'] = 50
+                config.evaluation['interval'] = args.n_iter // 2.5
+                config.checkpoint_config['interval'] = args.n_iter+1
             mmcv.Config.dump(config, config_AL)
 
-        if test_cfg.active_learning.selection_method == 'random':
-            workdir = f'{args.work_dir}/{test_cfg.active_learning.selection_method}/{test_cfg.active_learning.n_sel}/round_{ir}/'
-        else:
-            workdir = f'{args.work_dir}/{test_cfg.active_learning.score_method}/{test_cfg.active_learning.aggregation_method}/{test_cfg.active_learning.selection_method}/{test_cfg.active_learning.n_sel}/round_{ir}/'
-            
+        workdir = f'{args.work_dir}/{method.replace("_", "/")}/{test_cfg.active_learning.n_sel}/round_{ir}/'         
         options = f' --work-dir {workdir}/'
         if args.auto_resume and ir == args.resume_round:
             options += f' --auto-resume'
@@ -147,7 +155,7 @@ def main(args):
         if args.n_gpu > 1:
             os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} {options}' )
         else:
-            os.system( f'python mmdetection/tools/train.py {config_AL} {options}' )
+            os.system( f'python mmdetection/tools/train.py {config_AL} {options} --gpu-ids {args.gpu_id}' )
 
         # test
         os.system( f'python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
@@ -161,6 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--work-dir', required=True, help='output directory')
     parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
     parser.add_argument('--n-gpu', default=1, type=int, help='Number of GPUs to use')
+    parser.add_argument('--gpu-id', type=int, default=0, help='id of gpu to use ')
 
     parser.add_argument('--do-split', action='store_true', help='Split original training set into starting training set and pool set')
     parser.add_argument('--ratio', default='0.9', help='The pool will be ratio * N(images) in original training set')

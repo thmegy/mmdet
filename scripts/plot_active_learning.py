@@ -29,6 +29,11 @@ marker_style = { # selection method
     'CoreSet' : '^'
     }
 
+metric_label = {
+    'bbox_mAP' : 'mAP',
+    'bbox_mAP_50' : 'mAP (IoU=0.5)',
+    'bbox_mAP_75' : 'mAP (IoU=0.75)'
+    }
 
 
 def get_latest(path_list):
@@ -53,7 +58,7 @@ def get_latest(path_list):
 def main(args):
 
     fig, ax1 = plt.subplots()
-    ax1.set_ylabel('mAP (IoU=0.5)')
+    ax1.set_ylabel(metric_label[args.metric_name])
     ax1.set_xlabel('# Added images')
     
     for indir in args.input_dir:
@@ -89,7 +94,7 @@ def main(args):
 
     ax1.legend()
     os.makedirs('plots/', exist_ok=True)
-    fig.savefig(f'plots/active_learning_{args.n_round}_rounds_{n_sel}_sel.pdf')
+    fig.savefig(f'plots/active_learning_{args.n_round}_rounds_{n_sel}_sel_{args.metric_name}.pdf')
                 
 
 if __name__ == '__main__':

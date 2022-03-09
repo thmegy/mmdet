@@ -57,10 +57,14 @@ def main(args):
         train = json.load(f)
 
     test_cfg = config.model.bbox_head.test_cfg
+
     if test_cfg.active_learning.selection_method == 'random':
         method = 'random'
     else:
         method = f'{test_cfg.active_learning.score_method}_{test_cfg.active_learning.aggregation_method}_{test_cfg.active_learning.selection_method}'
+
+    if test_cfg.active_learning.selection_method == 'CoreSet':
+        torch.cuda.set_device(args.gpu_id)
 
     # loop over active learning iterations
     if args.auto_resume:

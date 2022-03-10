@@ -19,6 +19,30 @@ def select_random(n_pool, n_sel):
 
 
 
+def update_train_pool(train, pool, selection, pool_img=None):
+    # update training set and pool according to selected images
+    sel_id = []
+    for idx in selection.sort(descending=True)[0]:
+        train['images'].append( pool['images'][idx] )
+        sel_id.append( pool['images'][idx]['id'] )
+                
+        pool['images'].remove( pool['images'][idx] )
+        if pool_img is not None:
+            pool_img.remove( pool_img[idx] )
+
+    # Pick annotations corresponding to selected images
+    for annot in pool["annotations"]:
+        if annot["image_id"] in sel_id:
+            train["annotations"].append(annot)
+            pool["annotations"].remove(annot)
+        
+    if pool_img is not None:
+        return train, pool, pool_img
+    else:
+        return train, pool
+
+
+
 def main(args):    
     config_AL = args.config.replace('.py', '_AL.py')
 
@@ -35,7 +59,17 @@ def main(args):
 
         # split training data into start training set and data pool for active learning
         if args.do_split or not os.path.isfile(train_set_name):
-            os.system( f'python scripts/split_train_val.py --original {train_set_orig} --train {train_set_name} --val {pool_set_name} --ratio {args.ratio}' )
+            with open(train_set_orig, 'rt') as f:
+                pool = json.load(f)
+            train = {'images':[], 'type':pool['type'], 'categories':pool['categories'], 'annotations':[]}
+                
+            selection = select_random(len(pool['images']), args.n_init)
+            train, pool = update_train_pool(train, pool, selection)
+
+            with open(pool_set_name, "wt") as f_out:
+                json.dump(pool, f_out)
+            with open(train_set_name, "wt") as f_out:
+                json.dump(train, f_out)
 
         # 1st training
         config.data.train.ann_file = train_set_name
@@ -43,7 +77,7 @@ def main(args):
         mmcv.Config.dump(config, config_AL)
         if args.do_init_train or not os.path.isfile(f'{workdir}/latest.pth'):
             if args.n_gpu == 1:
-                os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/' )
+                os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/ --gpu-ids {args.gpu_id}' )
             else:
                 os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/' )
 
@@ -63,9 +97,10 @@ def main(args):
     else:
         method = f'{test_cfg.active_learning.score_method}_{test_cfg.active_learning.aggregation_method}_{test_cfg.active_learning.selection_method}'
 
-    if test_cfg.active_learning.selection_method == 'CoreSet':
+    if test_cfg.active_learning.selection_method == 'CoreSet': # needed to use correct gpu in feature vector calculation
         torch.cuda.set_device(args.gpu_id)
 
+        
     # loop over active learning iterations
     if args.auto_resume:
         round_range = range(args.resume_round, args.n_round)
@@ -106,26 +141,14 @@ def main(args):
                 uncertainty = torch.concat(uncertainty)
                 if test_cfg.active_learning.selection_method == 'CoreSet':
                     representation = torch.concat(representation)
-
+                    
                 torch.cuda.empty_cache()
                 del detector
                 # select images to be added to the training set
                 selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs, embedding=representation)
                 
             # update training set and pool according to selected images
-            sel_id = []
-            for idx in selection.sort(descending=True)[0]:
-                train['images'].append( pool['images'][idx] )
-                sel_id.append( pool['images'][idx]['id'] )
-                
-                pool['images'].remove( pool['images'][idx] )
-                pool_img.remove( pool_img[idx] )
-
-            # Pick annotations corresponding to selected images
-            for annot in pool["annotations"]:
-                if annot["image_id"] in sel_id:
-                    train["annotations"].append(annot)
-                    pool["annotations"].remove(annot)
+            train, pool, pool_img = update_train_pool(train, pool, selection, pool_img=pool_img)
 
             # save new train and pool sets
             if args.auto_resume:
@@ -176,8 +199,7 @@ if __name__ == '__main__':
     parser.add_argument('--gpu-id', type=int, default=0, help='id of gpu to use ')
 
     parser.add_argument('--do-split', action='store_true', help='Split original training set into starting training set and pool set')
-    parser.add_argument('--ratio', default='0.9', help='The pool will be ratio * N(images) in original training set')
-
+    parser.add_argument('--n-init', default=1000, type=int, help='Number of initially labelled images')
     parser.add_argument('--do-init-train', action='store_true', help='Perform initial training')
 
     parser.add_argument('--incremental-learning', action='store_true', help='Do not train from scratch at each round, start from latest checkpoint of previous round')

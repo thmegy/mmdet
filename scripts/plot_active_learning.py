@@ -76,9 +76,17 @@ def main(args):
         results = []
         for ir in range(args.n_round):
             eval_list = glob(f'{indir}/round_{ir}/eval*')
-            with open(get_latest(eval_list), 'r') as f_in: # read results from latest evaluation available in directory
-                results.append( json.load(f_in)['metric'][args.metric_name] )
-
+            if args.latest:
+                with open(get_latest(eval_list), 'r') as f_in: # read results from latest evaluation available in directory
+                    results.append( json.load(f_in)['metric'][args.metric_name] )
+            else:
+                res = []
+                for ev in eval_list:
+                    with open(ev, 'r') as f_in: # read results from latest evaluation available in directory
+                        res.append( json.load(f_in)['metric'][args.metric_name] )
+                res = np.array(res)
+                results.append(res.mean())
+                    
         print(results)
         n_sel_array = np.linspace(n_sel, n_sel*args.n_round, args.n_round)
 
@@ -103,6 +111,7 @@ if __name__ == '__main__':
     parser.add_argument('--n-round', required=True, type=int, help='Number of iterations for active learning')
     parser.add_argument('--input-dir', nargs='*', required=True, help='path to active learning results for a given set of method, e.g. output/<dataset_nn>/Entropy/sum/batch/<n_sel>')
     parser.add_argument('--metric-name', default='bbox_mAP_50', help='Name of evaluation metric')
+    parser.add_argument('--latest', action='store_true', help='Use latest evaluation instead of mean of all evaluations')
 
     args = parser.parse_args()
 

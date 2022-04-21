@@ -5,14 +5,14 @@ model = dict(
     bbox_head=dict(
         type='YOLOV3HeadLPM',
         num_classes=20,
-        loss_cls=dict(reduction='none'),
+        loss_cls=dict(reduction='none'), # per-event loss (instead of per-batch)
         loss_conf=dict(reduction='none'),
         loss_xy=dict(reduction='none'),
         loss_wh=dict(reduction='none'),
         test_cfg = dict(
             active_learning = dict(
-                score_method = 'MarginSampling',
-                aggregation_method = 'sum',
+                score_method = 'LossPrediction', # just for name
+                aggregation_method = 'none', # just for name
                 selection_method = 'batch',
                 n_sel = 1000,
                 selection_kwargs = dict(

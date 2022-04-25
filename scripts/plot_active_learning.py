@@ -12,11 +12,13 @@ color = { # uncertainty method
     '_' : 'black',
     'Entropy' : 'blue',
     'MarginSampling' : 'red',
-    'VarRatio' : 'green'
+    'VarRatio' : 'orange',
+    'LossPrediction' : 'green'
 }
 
 line_style = { # aggregation method
     '_' : 'solid',
+    'none' : 'solid',
     'maximum' : 'solid',
     'average' : 'dotted',
     'sum' : 'dashed',
@@ -72,8 +74,19 @@ def main(args):
         agg_method = indir_split[-3]
         sel_method = indir_split[-2]
 
-        # get results of each active learning round
         results = []
+
+        #get results for initial training
+        init_train_path = '/'.join(indir_split[:-4])
+        eval_list_init = glob(f'{init_train_path}/init_training*/eval*')
+        res_init = []
+        for ev_init in eval_list_init:
+            with open(ev_init, 'r') as f_in: # read results from latest evaluation available in directory
+                res_init.append( json.load(f_in)['metric'][args.metric_name] )
+        res_init = np.array(res_init)
+        results.append(res_init.mean())
+
+        # get results of each active learning round
         for ir in range(args.n_round):
             eval_list = glob(f'{indir}/round_{ir}/eval*')
             if args.latest:
@@ -88,7 +101,7 @@ def main(args):
                 results.append(res.mean())
                     
         print(results)
-        n_sel_array = np.linspace(n_sel, n_sel*args.n_round, args.n_round)
+        n_sel_array = np.linspace(0, n_sel*args.n_round, args.n_round+1)
 
         if 'random' in indir:
             label = sel_method

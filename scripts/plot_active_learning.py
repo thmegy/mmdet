@@ -70,14 +70,24 @@ def main(args):
         indir_split = indir.split('/')
 
         n_sel = int(indir_split[-1])
-        unc_method = indir_split[-4]
-        agg_method = indir_split[-3]
         sel_method = indir_split[-2]
 
+        if 'random' in indir:
+            unc_method = '_'
+            agg_method = '_'
+            init_train_path = '/'.join(indir_split[:-2])
+            label = sel_method
+        else:
+            unc_method = indir_split[-4]
+            agg_method = indir_split[-3]
+            init_train_path = '/'.join(indir_split[:-4])
+            label = f'{unc_method} / {agg_method} / {sel_method}'
+            
+
         results = []
+        results_std = []
 
         #get results for initial training
-        init_train_path = '/'.join(indir_split[:-4])
         eval_list_init = glob(f'{init_train_path}/init_training*/eval*')
         res_init = []
         for ev_init in eval_list_init:
@@ -85,6 +95,7 @@ def main(args):
                 res_init.append( json.load(f_in)['metric'][args.metric_name] )
         res_init = np.array(res_init)
         results.append(res_init.mean())
+        results_std.append(res_init.std())
 
         # get results of each active learning round
         for ir in range(args.n_round):
@@ -99,18 +110,18 @@ def main(args):
                         res.append( json.load(f_in)['metric'][args.metric_name] )
                 res = np.array(res)
                 results.append(res.mean())
+                results_std.append(res.std())
                     
         print(results)
         n_sel_array = np.linspace(0, n_sel*args.n_round, args.n_round+1)
 
-        if 'random' in indir:
-            label = sel_method
-            unc_method = '_'
-            agg_method = '_'
-        else:
-            label = f'{unc_method} / {agg_method} / {sel_method}'
-
+        results = np.array(results)
+        results_std = np.array(results_std)
+            
         ax1.plot(n_sel_array, results, color=color[unc_method], linestyle=line_style[agg_method], marker=marker_style[sel_method], label=label)
+        if args.plot_std:
+            ax1.plot(n_sel_array, results+results_std, color=color[unc_method], linestyle=line_style[agg_method], marker=marker_style[sel_method], linewidth=0.5, markersize=2, label='$\pm$std')
+            ax1.plot(n_sel_array, results-results_std, color=color[unc_method], linestyle=line_style[agg_method], marker=marker_style[sel_method], linewidth=0.5, markersize=2)
         
 
     ax1.legend()
@@ -125,6 +136,7 @@ if __name__ == '__main__':
     parser.add_argument('--input-dir', nargs='*', required=True, help='path to active learning results for a given set of method, e.g. output/<dataset_nn>/Entropy/sum/batch/<n_sel>')
     parser.add_argument('--metric-name', default='bbox_mAP_50', help='Name of evaluation metric')
     parser.add_argument('--latest', action='store_true', help='Use latest evaluation instead of mean of all evaluations')
+    parser.add_argument('--plot-std', action='store_true', help='Plot standard deviation')
 
     args = parser.parse_args()
 

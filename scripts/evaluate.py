@@ -8,8 +8,6 @@ import numpy as np
 
 import time
 
-SCORE_THRESHOLD = 0.5
-IOU_THRESHOLD = 0.4
 
 
 def parse_arguments():
@@ -17,13 +15,14 @@ def parse_arguments():
     parser.add_argument("--config", required=True, help="mmdetection config")
     parser.add_argument("--checkpoint", required=True, help="mmdetection checkpoint")
     parser.add_argument("--dataset", required=True, help="JSON cocolike dataset")
-    parser.add_argument(
-        "--images_dir", required=True, help="Directory containing the images"
-    )
-    parser.add_argument(
-        "--viz_dir", required=True, help="Directory where visualizations will be saved"
-    )
+    parser.add_argument("--images-dir", required=True, help="Directory containing the images" )
+    parser.add_argument("--viz-dir", required=True, help="Directory where visualizations will be saved")
+    parser.add_argument("--score-threshold", type=float, default=0.5, help="Score threshold")
+    parser.add_argument("--iou-threshold", type=float, default=0.5, help="iou threshold")
     args = parser.parse_args()
+
+    os.makedirs(args.viz_dir, exist_ok=True)
+    
     return args
 
 
@@ -114,7 +113,7 @@ if __name__ == "__main__":
 
         predictions = mmdet.apis.inference_detector(detector, image_path)
         predictions = predictions[0]
-        predictions = [pred for pred in predictions if pred[4] > SCORE_THRESHOLD]
+        predictions = [pred for pred in predictions if pred[4] > args.score_threshold]
 
         image = cv.imread(image_path)
 
@@ -130,7 +129,7 @@ if __name__ == "__main__":
                 bbox2 = prediction[:4]
                 iou_matrix[i, j] = iou(bbox1, bbox2)
 
-        matches_matrix = iou_matrix > IOU_THRESHOLD
+        matches_matrix = iou_matrix > args.iou_threshold
 
         # Compute and draw results
         true_positives = 0

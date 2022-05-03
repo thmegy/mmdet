@@ -76,7 +76,7 @@ if __name__ == "__main__":
             num_total = count_per_category[category_name]
             num_val = count_per_category_val[category_name]
             current_is_balanced = (
-                0.8 * args.ratio * num_total < num_val < 1.2 * args.ratio * num_total
+                0.9 * args.ratio * num_total < num_val < 1.1 * args.ratio * num_total
             )
             if not current_is_balanced:
                 counts_are_balanced = False

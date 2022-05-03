@@ -36,3 +36,12 @@ To run an inference using a trained model:
 ```
 python scripts/inference.py --config <path-to-config> --checkpoint <path-to-pth> --im-dir <path-to-images> --viz-dir <output-path> --score-threshold <minimum-score>
 ```
+
+
+## Prepare data pipeline
+
+In order to prepare the data pipeline, the resize and crop in particular, it might come handy to be aware of the size of the bounding boxes in the labelled dataset.
+A distribution of the bbox sizes can be produced with:
+```
+python scripts/get_bbox_size.py --infile <path-to-coco-annotation-file.json>
+```

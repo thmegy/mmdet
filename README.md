@@ -28,3 +28,11 @@ You can launch a training on a multiple GPUs with:
 ./mmdetection/tools/dist_train.sh configs/<config-file> <n_GPU> --work-dir outputs/<dir>
 ```
 The '--resume-from' argument, followed by a checkpoint, can also be used to resume a training.
+
+
+## Inference
+
+To run an inference using a trained model:
+```
+python scripts/inference.py --config <path-to-config> --checkpoint <path-to-pth> --im-dir <path-to-images> --viz-dir <output-path> --score-threshold <minimum-score>
+```

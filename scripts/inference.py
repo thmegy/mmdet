@@ -3,6 +3,7 @@ import mmdet.apis
 import glob
 import cv2 as cv
 import os
+import torch
 
 
 
@@ -11,10 +12,12 @@ classes = ('tronc',)
 
 
 def main(args):
+    device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
+    
     detector = mmdet.apis.init_detector(
         args.config,
         args.checkpoint,
-        device=f"cuda:{args.gpu_id}",
+        device=device,
     )
 
     # get list of images in directory

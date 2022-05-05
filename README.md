@@ -45,3 +45,4 @@ A distribution of the bbox sizes can be produced with:
 ```
 python scripts/get_bbox_size.py --infile <path-to-coco-annotation-file.json>
 ```
+The number of small (area < 32*32 pixels), medium (32*32 < area < 96*96) and large (area > 96*96) objects is also computed.

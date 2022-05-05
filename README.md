@@ -46,3 +46,43 @@ A distribution of the bbox sizes can be produced with:
 python scripts/get_bbox_size.py --infile <path-to-coco-annotation-file.json>
 ```
 The number of small (area < 32*32 pixels), medium (32*32 < area < 96*96) and large (area > 96*96) objects is also computed.
+
+
+## Active Learning (AL)
+
+Active learning procedures can be tested with:
+```
+python scripts/active_learning.py --config <path-to-config> --work-dir <output-directory> --n-round <AL-iterations>
+```
+This script manages the dataset and launches the trainings for each AL iteration. The dataset is expected to have the `CocoDataset` format.
+The full dataset is automatically split between a reduced training set and a pool set, if the sets do not already exist. The number of images in the initial pool set is chosen with `--n-init`. If the the pool and training sets already exist, a new split can be made using the argument `--do-split`.
+The initial training of the AL procedure, using the initial training set, is done automatically if the corresponding output cannot be found. If an output already exists, the training can be made again with the argument `--do-init-train`.
+By default, the detection model is trained from scratch at each AL iteration. However, an online learning strategy has been implemented to speed up things. It is activated with `--incremental-learning`, and fine-tunes the model for `--n-iter` training iterations, starting from the latest checkpoint of the previous AL iteration.
+
+### Config and modification of models
+
+The parameters defining a specific AL strategy are given in the config file. For YOLOv3, it looks like:
+```
+model = dict(
+    bbox_head=dict(
+        type='YOLOV3Head',
+        num_classes=<n-classes>,
+        test_cfg = dict(
+            active_learning = dict(
+		score_method = 'MarginSampling',
+                aggregation_method = 'sum',
+                selection_method = 'batch',
+		n_sel = 1000,
+		selection_kwargs = dict(
+                    batch_size = 10,
+                ),
+                alpha = 0.5 # proba for sampler used if incremental learning
+            )
+        )
+    )
+)
+```
+The various score, aggregation and selection methods are implemented in [mmdetection/mmdet/utils/active_learning.py](https://github.com/thmegy/mmdetection/blob/master/mmdet/utils/active_learning.py).
+
+Before using a given detection models in an AL procedure, it is necessary to modify the model's head such that, at inference time, it returns the images uncertainty instead of predicted bounding boxes if an AL procedure is ongoing.
+For YOLOv3, the modifications can be found in [mmdetection/mmdet/models/dense_heads/yolo_head.py](https://github.com/thmegy/mmdetection/blob/master/mmdet/models/dense_heads/yolo_head.py#L209)

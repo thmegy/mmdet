@@ -126,7 +126,10 @@ def main(args):
 
     ax1.legend()
     os.makedirs('plots/', exist_ok=True)
-    fig.savefig(f'plots/active_learning_{args.n_round}_rounds_{n_sel}_sel_{args.metric_name}.pdf')
+    outname = f'active_learning_{args.n_round}_rounds_{n_sel}_sel_{args.metric_name}'
+    if args.plot_std:
+        outname += '_with_std'
+    fig.savefig(f'plots/{outname}.pdf')
                 
 
 if __name__ == '__main__':

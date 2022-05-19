@@ -38,11 +38,12 @@ def main(args):
         image = cv.imread(im)
         outpath = im.replace(args.im_dir, args.viz_dir)
         ann = []
-
+        
         if args.is_seg:
             color = np.array([0,255,0], dtype='uint8') # mask color
             mask_full = np.full(image.shape[:2], False) # overall mask to gather all instance masks
-
+            seg = []
+            
             for ic, (pred, seg) in enumerate(zip(preds[0], preds[1])): # loop on classes
                 for ip, (p, mask) in enumerate(zip(pred, seg)): # loop on instances (bbox + segmentation mask)
                     x1, y1, x2, y2 = p[:4]
@@ -53,6 +54,7 @@ def main(args):
                         ann.append(f'{x1} {y1} {x2} {y2}')
 
                         mask_full += mask
+                        seg.append(mask)
 
             masked_image = np.where(mask_full[...,None], color, image)
             cv.imwrite(outpath, masked_image)
@@ -60,7 +62,7 @@ def main(args):
             # save segmentation masks
             if len(seg) > 0:
                 with open(outpath.replace('.png', '.npy'), 'wb') as f:
-                    np.save(f, mask_full)
+                    np.save(f, seg)
                     
         else:
             for ic, pred in enumerate(preds): # loop on classes

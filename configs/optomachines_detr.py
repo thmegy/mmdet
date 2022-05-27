@@ -2,7 +2,19 @@ _base_ = '../mmdetection/configs/deformable_detr/deformable_detr_twostage_refine
 
 model = dict(
     bbox_head=dict(
-        num_classes=2
+        num_classes=2,
+    ),
+    test_cfg = dict(
+        active_learning = dict(
+            score_method = 'Entropy',
+            aggregation_method = 'sum',
+            selection_method = 'maximum',
+            n_sel = 1000,
+            selection_kwargs = dict(
+                batch_size = 10,
+            ),
+            alpha = 0.5 # proba for sampler used if incremental learning
+        )
     )
 )
 
@@ -68,7 +80,7 @@ dataset_type = 'CocoDataset'
 classes = ('Glasurbild', 'defaut')
 data_root = 'data/optomachines/'
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=1,
     workers_per_gpu=1,
     train=dict(
         type=dataset_type,
@@ -104,5 +116,5 @@ load_from='checkpoints/deformable_detr_twostage_refine_r50_16x2_50e_coco_2021041
 #optimizer = dict(lr=2e-4 * 1 / 32) # learning rate scaling done automatically with --auto-scale-lr argument
 checkpoint_config = dict(interval=5) # save checkpoint every 10 epochs
 evaluation = dict(interval=5)
-runner = dict(max_epochs=100)
-lr_config = dict(step=[80])
+runner = dict(max_epochs=150)
+lr_config = dict(step=[120])

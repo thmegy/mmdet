@@ -77,9 +77,12 @@ def main(args):
         mmcv.Config.dump(config, config_AL)
         if args.do_init_train or not os.path.isfile(f'{workdir}/latest.pth'):
             if args.n_gpu == 1:
-                os.system( f'python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/ --gpu-ids {args.gpu_id}' )
+                os.system( f'CUDA_VISIBLE_DEVICES={args.gpu_id} python mmdetection/tools/train.py {config_AL} --work-dir {workdir}/ --auto-scale-lr' )
             else:
                 os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} --work-dir {workdir}/' )
+                
+            # test
+            os.system( f'CUDA_VISIBLE_DEVICES={args.gpu_id} python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
 
     # create list of pool images
     img_path = config.data.train.img_prefix
@@ -90,7 +93,10 @@ def main(args):
     with open(train_set_name, 'rt') as f:
         train = json.load(f)
 
-    test_cfg = config.model.bbox_head.test_cfg
+    try:
+        test_cfg = config.model.bbox_head.test_cfg
+    except:
+        test_cfg = config.model.test_cfg
 
     if test_cfg.active_learning.selection_method == 'random':
         method = 'random'
@@ -182,10 +188,10 @@ def main(args):
         if args.n_gpu > 1:
             os.system( f'./mmdetection/tools/dist_train.sh {config_AL} {args.n_gpu} {options}' )
         else:
-            os.system( f'python mmdetection/tools/train.py {config_AL} {options} --gpu-ids {args.gpu_id}' )
+            os.system( f'CUDA_VISIBLE_DEVICES={args.gpu_id} python mmdetection/tools/train.py {config_AL} {options} --auto-scale-lr' )
 
         # test
-        os.system( f'python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
+        os.system( f'CUDA_VISIBLE_DEVICES={args.gpu_id} python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
 
 
         

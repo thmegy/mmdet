@@ -19,6 +19,8 @@ def parse_arguments():
     parser.add_argument("--viz-dir", required=True, help="Directory where visualizations will be saved")
     parser.add_argument("--score-threshold", type=float, default=0.5, help="Score threshold")
     parser.add_argument("--iou-threshold", type=float, default=0.5, help="iou threshold")
+    parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")
+    parser.add_argument("--is-seg", action='store_true', help="Instance segmentation network, mask is expected in predictions")
     args = parser.parse_args()
 
     os.makedirs(args.viz_dir, exist_ok=True)
@@ -55,11 +57,11 @@ def draw_text(image, true_positives, false_positives, false_negatives):
         cv.putText(
             image,
             text,
-            (image.shape[1] - 1000, y),
+            (image.shape[1] - 235, y),
             cv.FONT_HERSHEY_SIMPLEX,
-            3,
+            0.6,
             (0, 0, 0),
-            3,
+            2,
             cv.LINE_AA,
         )
 
@@ -67,27 +69,27 @@ def draw_text(image, true_positives, false_positives, false_negatives):
         cv.putText(
             image,
             text,
-            (image.shape[1] - 1000, y),
+            (image.shape[1] - 235, y),
             cv.FONT_HERSHEY_SIMPLEX,
-            3,
+            0.6,
             color,
-            3,
+            1,
             cv.LINE_AA,
         )
 
-    draw_shadow(f"True positives: {true_positives}", image.shape[0] - 300)
-    draw_shadow(f"False positives: {false_positives}", image.shape[0] - 200)
-    draw_shadow(f"False negatives: {false_negatives}", image.shape[0] - 100)
-    draw_color(f"True positives: {true_positives}", image.shape[0] - 300, (0, 255, 0))
-    draw_color(f"False positives: {false_positives}", image.shape[0] - 200, (0, 0, 255))
-    draw_color(f"False negatives: {false_negatives}", image.shape[0] - 100, (255, 0, 0))
+    draw_shadow(f"True positives: {true_positives}", image.shape[0] - 60)
+    draw_shadow(f"False positives: {false_positives}", image.shape[0] - 35)
+    draw_shadow(f"False negatives: {false_negatives}", image.shape[0] - 10)
+    draw_color(f"True positives: {true_positives}", image.shape[0] - 60, (0, 255, 0))
+    draw_color(f"False positives: {false_positives}", image.shape[0] - 35, (0, 0, 255))
+    draw_color(f"False negatives: {false_negatives}", image.shape[0] - 10, (255, 0, 0))
 
 
 if __name__ == "__main__":
     args = parse_arguments()
 
-    detector = mmdet.apis.init_detector(args.config, args.checkpoint, device="cuda:0")
-    
+    detector = mmdet.apis.init_detector(args.config, args.checkpoint, device=f'cuda:{args.gpu_id}')
+
     with open(args.dataset, "rt") as f_in:
         dataset = json.load(f_in)
 
@@ -114,17 +116,21 @@ if __name__ == "__main__":
         image = cv.imread(image_path)
 
         predictions = mmdet.apis.inference_detector(detector, image_path)
+        if args.is_seg:
+            seg = predictions[1]
+            predictions = predictions[0]
 
         true_positives = 0
         false_positives = 0
         false_negatives = 0
+
         for ic, pred in enumerate(predictions): # loop on classes 
             try:
                 gt_bboxes = bboxes_per_class[ic][image_info["id"]]
             except KeyError:
                 # No bbox on that image
                 gt_bboxes = []
-
+                
             pred = [p for p in pred if p[4] > args.score_threshold]
 
             # Build iou matrix predictions vs gt
@@ -150,8 +156,8 @@ if __name__ == "__main__":
                     x1, y1, x2, y2 = pred[pred_idx][:4]
                     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
                     true_positives += 1
-                    cv.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                    cv.putText(image, f'{dataset["categories"][ic]["name"]}, {pred[pred_idx][4]:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3, cv.LINE_AA)
+                    cv.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                    cv.putText(image, f'{dataset["categories"][ic]["name"]}, {pred[pred_idx][4]:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv.LINE_AA)
 
                 elif num_matches == 0:
                     false_negatives += 1
@@ -161,8 +167,8 @@ if __name__ == "__main__":
                     x2 = x1 + width
                     y2 = y1 + height
                     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-                    cv.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 3)
-                    cv.putText(image, f'{dataset["categories"][ic]["name"]}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 2, (255, 0, 0), 3, cv.LINE_AA)
+                    cv.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
+                    cv.putText(image, f'{dataset["categories"][ic]["name"]}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 1, cv.LINE_AA)
 
             for i, pred_matches in enumerate(matches_matrix):
                 num_matches = pred_matches.sum()
@@ -171,8 +177,8 @@ if __name__ == "__main__":
                     x1, y1, x2, y2 = pred[i][:4]
                     x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
                     false_positives += 1
-                    cv.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                    cv.putText(image, f'{dataset["categories"][ic]["name"]}, {pred[i][4]:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3, cv.LINE_AA)
+                    cv.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 1)
+                    cv.putText(image, f'{dataset["categories"][ic]["name"]}, {pred[i][4]:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 1, cv.LINE_AA)
                     
         draw_text(image, true_positives, false_positives, false_negatives)
         all_true_positives += true_positives

@@ -128,7 +128,7 @@ def main(args):
                 )
                 
                 # split images into batches to run the inference
-                img_batch_size = 50
+                img_batch_size = args.batch_size
                 img_n_batch = len(pool_img) // img_batch_size
                 img_batches = np.array_split( np.array(pool_img), img_n_batch )
 
@@ -201,6 +201,7 @@ if __name__ == '__main__':
     parser.add_argument('--config', required=True, help='mmdetection config')
     parser.add_argument('--work-dir', required=True, help='output directory')
     parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
+    parser.add_argument('--batch-size', default=50, type=int, help='Number of images in inference batch')
     parser.add_argument('--n-gpu', default=1, type=int, help='Number of GPUs to use')
     parser.add_argument('--gpu-id', type=int, default=0, help='id of gpu to use ')
 

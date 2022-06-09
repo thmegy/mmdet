@@ -70,9 +70,14 @@ def main(args):
                     if p[4] > args.score_threshold:
                         cv.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
                         cv.putText(image, f'{classes[ic]}, {p[4]:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 1, cv.LINE_AA)
-                        ann.append(f'{x1} {y1} {x2} {y2}')
+                        if args.yolo_format:
+                            image_width = image.shape[1]
+                            image_height = image.shape[0]
+                            ann.append(f'{ic} {(x1+x2)/2/image_width} {(y1+y2)/2/image_height} {(x2-x1)/image_width} {(y2-y1)/image_height}')
+                        else:
+                            ann.append(f'{x1} {y1} {x2} {y2}')                            
             
-            cv.imwrite(outpath, image)
+#            cv.imwrite(outpath, image)
 
             
         with open(outpath.replace('.png', '.txt'), 'w') as f:
@@ -93,6 +98,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")
     parser.add_argument("--score-threshold", type=float, default=0.5, help="bbox score threshold")
     parser.add_argument("--is-seg", action='store_true', help="Instance segmentation network, mask is expected in predictions")
+    parser.add_argument("--yolo-format", action='store_true', help="yolo format for saved annotations")
     args = parser.parse_args()
 
     os.makedirs(args.viz_dir, exist_ok=True)

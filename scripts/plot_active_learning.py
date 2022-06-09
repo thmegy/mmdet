@@ -117,6 +117,10 @@ def main(args):
 
         results = np.array(results)
         results_std = np.array(results_std)
+
+        if args.normalise:
+            results_std = results_std / results[0]
+            results = results / results[0]
             
         ax1.plot(n_sel_array, results, color=color[unc_method], linestyle=line_style[agg_method], marker=marker_style[sel_method], label=label)
         if args.plot_std:
@@ -129,6 +133,8 @@ def main(args):
     outname = f'active_learning_{args.n_round}_rounds_{n_sel}_sel_{args.metric_name}'
     if args.plot_std:
         outname += '_with_std'
+    if args.normalise:
+        outname += '_normalised'
     fig.savefig(f'plots/{outname}.pdf')
                 
 
@@ -140,6 +146,7 @@ if __name__ == '__main__':
     parser.add_argument('--metric-name', default='bbox_mAP_50', help='Name of evaluation metric')
     parser.add_argument('--latest', action='store_true', help='Use latest evaluation instead of mean of all evaluations')
     parser.add_argument('--plot-std', action='store_true', help='Plot standard deviation')
+    parser.add_argument('--normalise', action='store_true', help='Normalise curve to result of initial training')
 
     args = parser.parse_args()
 

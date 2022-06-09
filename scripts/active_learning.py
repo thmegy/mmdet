@@ -147,7 +147,6 @@ def main(args):
                 uncertainty = torch.concat(uncertainty)
                 if test_cfg.active_learning.selection_method == 'CoreSet':
                     representation = torch.concat(representation)
-                    
                 torch.cuda.empty_cache()
                 del detector
                 # select images to be added to the training set
@@ -156,6 +155,11 @@ def main(args):
             # update training set and pool according to selected images
             train, pool, pool_img = update_train_pool(train, pool, selection, pool_img=pool_img)
 
+            # free gpu memory
+            del uncertainty, selection
+            torch.cuda.empty_cache()
+
+            
             # save new train and pool sets
             if args.auto_resume:
                 with open(pool_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:

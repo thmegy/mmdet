@@ -2,6 +2,7 @@ _base_ = '../mmdetection/configs/yolo/yolov3_d53_fp16_mstrain-608_273e_coco.py'
 
 # model settings
 model = dict(
+    type='YOLOV3LPM',
     bbox_head=dict(
         type='YOLOV3HeadLPM',
         num_classes=20,
@@ -13,7 +14,7 @@ model = dict(
             active_learning = dict(
                 score_method = 'LossPrediction', # just for name
                 aggregation_method = 'none', # just for name
-                selection_method = 'batch',
+                selection_method = 'maximum',
                 n_sel = 1000,
                 selection_kwargs = dict(
                     batch_size = 10,

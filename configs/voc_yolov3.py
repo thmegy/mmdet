@@ -3,12 +3,13 @@ _base_ = '../mmdetection/configs/yolo/yolov3_d53_fp16_mstrain-608_273e_coco.py'
 # model settings
 model = dict(
     bbox_head=dict(
+        type='YOLOV3Head',
         num_classes=20,
         test_cfg = dict(
             active_learning = dict(
-                score_method = 'Entropy',
+                score_method = 'MarginSampling',
                 aggregation_method = 'sum',
-                selection_method = 'CoreSet',
+                selection_method = 'maximum',
                 n_sel = 1000,
                 selection_kwargs = dict(
                     batch_size = 10,

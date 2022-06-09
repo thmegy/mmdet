@@ -32,9 +32,9 @@ train_pipeline = [
         policies=[[{
             'type':
             'Resize',
-            'img_scale': [(480, 1200), (512, 1200), (544, 1200), (576, 1200),
-                          (608, 1200), (640, 1200), (672, 1200), (704, 1200),
-                          (736, 1200), (768, 1200), (800, 1200)],
+            'img_scale': [(480, 1000), (512, 1000), (544, 1000), (576, 1000),
+                          (608, 1000), (640, 1000), (672, 1000), (704, 1000),
+                          (736, 1000), (768, 1000), (800, 1000)],
             'multiscale_mode':
             'value',
             'keep_ratio':
@@ -53,10 +53,10 @@ train_pipeline = [
 #                  }, {
 #                      'type':
 #                      'Resize',
-#                      'img_scale': [(480, 1200), (512, 1200), (544, 1200),
-#                                    (576, 1200), (608, 1200), (640, 1200),
-#                                    (672, 1200), (704, 1200), (736, 1200),
-#                                    (768, 1200), (800, 1200)],
+#                      'img_scale': [(480, 1000), (512, 1000), (544, 1000),
+#                                    (576, 1000), (608, 1000), (640, 1000),
+#                                    (672, 1000), (704, 1000), (736, 1000),
+#                                    (768, 1000), (800, 1000)],
 #                      'multiscale_mode':
 #                      'value',
 #                      'override':
@@ -78,7 +78,7 @@ test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1200, 800),
+        img_scale=(1000, 800),
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -138,5 +138,5 @@ load_from='checkpoints/deformable_detr_twostage_refine_r50_16x2_50e_coco_2021041
 #optimizer = dict(lr=2e-4 * 1 / 32) # learning rate scaling done automatically with --auto-scale-lr argument
 checkpoint_config = dict(interval=20) # save checkpoint every 10 epochs
 evaluation = dict(interval=5)
-#runner = dict(max_epochs=150)
-#lr_config = dict(step=[120])
+runner = dict(max_epochs=20)
+lr_config = dict(step=[16])

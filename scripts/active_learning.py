@@ -151,12 +151,14 @@ def main(args):
                 del detector
                 # select images to be added to the training set
                 selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs, embedding=representation)
+                # free gpu memory
+                del uncertainty
                 
             # update training set and pool according to selected images
             train, pool, pool_img = update_train_pool(train, pool, selection, pool_img=pool_img)
 
             # free gpu memory
-            del uncertainty, selection
+            del selection
             torch.cuda.empty_cache()
 
             
@@ -178,7 +180,7 @@ def main(args):
             if args.incremental_learning:
                 config.load_from = f'{workdir}/latest.pth' # checkpoint from previous iteration
                 config.runner = dict(type='IterBasedRunner', max_iters=args.n_iter)
-                config.evaluation['interval'] = args.n_iter // 2.5
+                config.evaluation['interval'] = args.n_iter + 1 # do not make intermediary evaluation
                 config.checkpoint_config['interval'] = args.n_iter+1
             mmcv.Config.dump(config, config_AL)
 

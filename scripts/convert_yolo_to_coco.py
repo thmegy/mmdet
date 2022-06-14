@@ -63,9 +63,14 @@ def parse_yolo_classes(classe_filepath):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--dataset",
+        "--image-path",
         required=True,
-        help="Yolo dataset directory containing .jpg and .txt",
+        help="Yolo dataset directory containing .jpg",
+    )
+    parser.add_argument(
+        "--annot-path",
+        required=True,
+        help="Yolo dataset directory containing .txt",
     )
     parser.add_argument(
         "--classes",
@@ -81,7 +86,7 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     image_filenames = []
-    for entry in os.scandir(args.dataset):
+    for entry in os.scandir(args.image_path):
         name, ext = os.path.splitext(entry.name)
         if ext not in [".jpg", ".png"]:
             continue
@@ -96,10 +101,10 @@ if __name__ == "__main__":
     for idx, (image_fname, annot_fname) in enumerate(
         zip(image_filenames, annot_filenames)
     ):
-        annot_path = os.path.join(args.dataset, annot_fname)
+        annot_path = os.path.join(args.annot_path, annot_fname)
         yolo_annotations = parse_yolo_annotation(annot_path)
 
-        image_path = os.path.join(args.dataset, image_fname)
+        image_path = os.path.join(args.image_path, image_fname)
         image_size = imagesize.get(image_path)
 
         coco_annotations = yolo_annotations_to_coco(yolo_annotations, image_size)

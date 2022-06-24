@@ -59,7 +59,7 @@ def generate_saliency_map(model,
                           n_masks=5000,
                           seed=0):
     np.random.seed(seed)
-    image_w, image_h = image_size
+    image_h, image_w = image_size
     res = [[[np.zeros((image_h, image_w), dtype=np.float32) for _ in range(len(target_boxes[im][ic]))] for ic in range(n_classes)] for im in range(len(images))]
 
     for i in tqdm.tqdm(range(n_masks)):
@@ -104,8 +104,8 @@ def parse_yolo_annotation(annotation_txtpath):
 
 def yolo_annotations_to_box(yolo_annotations, image_size, n_class):
     """ Convert a yolo annotation list to (x1, y1, x2, y2) coordinates."""
-    image_width = image_size[0]
-    image_height = image_size[1]
+    image_width = image_size[1]
+    image_height = image_size[0]
     box_annotations = [[] for _ in range(n_class)]
 
     for annotation in yolo_annotations:
@@ -161,8 +161,8 @@ def main(args):
     for batch in img_batches:
         images = [cv2.resize(cv2.imread(im),
                              None,
-                             fx= new_image_size[0] / image_size[0],
-                             fy= new_image_size[1] / image_size[1],
+                             fx= new_image_size[1] / image_size[0],
+                             fy= new_image_size[0] / image_size[1],
                              interpolation=cv2.INTER_AREA)
                   for im in batch]
         target_boxes = [yolo_annotations_to_box(parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt')), new_image_size, n_class) for im in batch]
@@ -173,7 +173,7 @@ def main(args):
                                              target_boxes,
                                              prob_thresh=0.5,
                                              grid_size=(16, 16),
-                                             n_masks=800)
+                                             n_masks=600)
 
         for im in range(len(batch)):
             image_with_bbox = images[im].copy()

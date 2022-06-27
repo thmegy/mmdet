@@ -139,6 +139,22 @@ def main(args):
     # get list of images in directory
     images = glob.glob(f'{args.image_path}/*jpg')
     image_size = imagesize.get(images[0])
+    print('Image size = ', image_size)
+    print(f'{len(images)} images in total')
+
+    # get list of images already processed
+    if not args.from_scratch:
+        already_processed = glob.glob(f'{args.output}/*png')
+        [images.remove(im.replace(args.output, args.image_path).replace('png', 'jpg')) for im in already_processed]
+    print(f'{len(images)} images after removing already processed')
+
+    # do not process images with no annotations
+    for im in images:
+        annot = parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt'))
+        if annot is None:
+            cv2.imwrite( f'{args.output}/{im.split("/")[-1].replace(".jpg", ".png")}', np.zeros((image_size[1], image_size[0])) )
+            images.remove(im)
+    print(f'{len(images)} images after removing those without annotations')
 
     # get number of classes and image size for inference from mmdetection config
     config = mmcv.Config.fromfile(args.config)
@@ -159,21 +175,22 @@ def main(args):
     # perform inference
     # split images into batches to run the inference
     img_batch_size = args.batch_size
-    img_n_batch = len(images) // img_batch_size
+    img_n_batch = len(images) // img_batch_size + 1
     img_batches = np.array_split( np.array(images), img_n_batch )
 
     for batch in img_batches:
         images = []
-        image_names = []
         target_boxes = []
         for im in batch:
-            annot = parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt'))
-            if annot is not None: # do not process images with no annotations
-                target_boxes.append( yolo_annotations_to_box(annot, image_size, n_class) )
-                images.append( cv2.imread(im) )
-                image_names.append(im)
-            else:
-                cv2.imwrite( f'{args.output}/{im.split("/")[-1].replace(".jpg", ".png")}', np.zeros((image_size[1], image_size[0])) )
+            image = cv2.imread(im)
+            if image.shape[1] != image_size[0] and image.shape[0] != image_size[1]:
+                image = cv2.resize(cv2.imread(im),
+                                   None,
+                                   fx=image_size[0] / image.shape[1],
+                                   fy=image_size[1] / image.shape[0],
+                                   interpolation=cv2.INTER_AREA)
+            images.append(image)
+            target_boxes.append( yolo_annotations_to_box(parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt')), image_size, n_class) )
 
         saliency_map = generate_saliency_map(model,
                                              images,
@@ -203,7 +220,7 @@ def main(args):
                         
                         seg_map = np.where(segmentation_mask, ic+1, seg_map)
     
-            cv2.imwrite(f'{args.output}/{image_names[im].split("/")[-1].replace(".jpg", ".png")}', seg_map)
+            cv2.imwrite(f'{args.output}/{batch[im].split("/")[-1].replace(".jpg", ".png")}', seg_map)
             
 
 
@@ -216,6 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--annot-path", required=True, help="Yolo dataset directory containing .txt")
 
     parser.add_argument("--output", required=True, help="path to output annotations and images")
+    parser.add_argument("--from-scratch", action='store_true', help="Reprocess image already present in output directory")
 
     parser.add_argument('--batch-size', default=50, type=int, help='Number of images in inference batch')
     parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")

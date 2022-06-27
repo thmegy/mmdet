@@ -59,7 +59,7 @@ def generate_saliency_map(model,
                           n_masks=5000,
                           seed=0):
     np.random.seed(seed)
-    image_h, image_w = image_size
+    image_w, image_h = image_size
     res = [[[np.zeros((image_h, image_w), dtype=np.float32) for _ in range(len(target_boxes[im][ic]))] for ic in range(n_classes)] for im in range(len(images))]
 
     for i in tqdm.tqdm(range(n_masks)):
@@ -84,7 +84,12 @@ def parse_yolo_annotation(annotation_txtpath):
     """ Parse a yolo annotation file. """
     annotations = []
     with open(annotation_txtpath, "rt") as f_in:
-        for line in f_in.readlines():
+        lines = f_in.readlines()
+        
+        if len(lines) == 0:
+            return None
+        
+        for line in lines:
             line = line.strip()
 
             cls, x_center, y_center, width, height = line.split()
@@ -104,8 +109,8 @@ def parse_yolo_annotation(annotation_txtpath):
 
 def yolo_annotations_to_box(yolo_annotations, image_size, n_class):
     """ Convert a yolo annotation list to (x1, y1, x2, y2) coordinates."""
-    image_width = image_size[1]
-    image_height = image_size[0]
+    image_width = image_size[0]
+    image_height = image_size[1]
     box_annotations = [[] for _ in range(n_class)]
 
     for annotation in yolo_annotations:
@@ -138,7 +143,6 @@ def main(args):
     # get number of classes and image size for inference from mmdetection config
     config = mmcv.Config.fromfile(args.config)
     n_class = len(config.data.train.classes)
-    new_image_size = config.data.test.pipeline[1]['img_scale']
 
     # creat color maps
     colors_list = [[1,0,0], [0,1,0], [0,0,1], [1,0,1], [0,1,1], [1,1,0]]
@@ -159,49 +163,48 @@ def main(args):
     img_batches = np.array_split( np.array(images), img_n_batch )
 
     for batch in img_batches:
-        images = [cv2.resize(cv2.imread(im),
-                             None,
-                             fx= new_image_size[1] / image_size[0],
-                             fy= new_image_size[0] / image_size[1],
-                             interpolation=cv2.INTER_AREA)
-                  for im in batch]
-        target_boxes = [yolo_annotations_to_box(parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt')), new_image_size, n_class) for im in batch]
+        images = []
+        image_names = []
+        target_boxes = []
+        for im in batch:
+            annot = parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt'))
+            if annot is not None: # do not process images with no annotations
+                target_boxes.append( yolo_annotations_to_box(annot, image_size, n_class) )
+                images.append( cv2.imread(im) )
+                image_names.append(im)
+            else:
+                cv2.imwrite( f'{args.output}/{im.split("/")[-1].replace(".jpg", ".png")}', np.zeros((image_size[1], image_size[0])) )
+
         saliency_map = generate_saliency_map(model,
                                              images,
-                                             new_image_size,
+                                             image_size,
                                              n_class,
                                              target_boxes,
                                              prob_thresh=0.5,
                                              grid_size=(16, 16),
                                              n_masks=600)
 
-        for im in range(len(batch)):
-            image_with_bbox = images[im].copy()
-            for ic in range(n_class):
-                for i in range(len(target_boxes[im][ic])):
-                    cv2.rectangle(image_with_bbox, tuple(target_boxes[im][ic][i,:2]),
-                                  tuple(target_boxes[im][ic][i,2:]), (np.flip(np.array(colors_list[ic])*255)).tolist(), 5)
-        
-            plt.figure(figsize=(12, 12))
-            plt.imshow(image_with_bbox[:, :, ::-1])
+        for im in range(len(images)):
+            seg_map = np.zeros((image_size[1], image_size[0]))
 
             for ic in range(n_class):
+                if len(target_boxes[im][ic]) == 0:
+                    continue
+                
+                # keep segmentation map within annotated bboxes
+                box_mask = np.full(saliency_map[im][ic][0].shape, False)
+                for x1,y1,x2,y2 in target_boxes[im][ic]:
+                    box_mask[y1:y2+1, x1:x2+1] = True
+
                 for ib in range(len(target_boxes[im][ic])):
                     if saliency_map[im][ic][ib].sum() > 0:
-                        box_mask = np.full(saliency_map[im][ic][ib].shape, False)
-                        x1,y1,x2,y2 = target_boxes[im][ic][ib]
-                        box_mask[y1:y2+1, x1:x2+1] = True
                         score_mask = saliency_map[im][ic][ib]>np.percentile(saliency_map[im][ic][ib], 95)
                         segmentation_mask = score_mask & box_mask
-
-                        plt.imshow(segmentation_mask, cmap=cmaps[ic], alpha=0.3)
+                        
+                        seg_map = np.where(segmentation_mask, ic+1, seg_map)
     
-            plt.axis('off')
-            plt.savefig(f'{args.output}/{batch[im].split("/")[-1]}')
+            cv2.imwrite(f'{args.output}/{image_names[im].split("/")[-1].replace(".jpg", ".png")}', seg_map)
             
-#    with open(args.output, "wt") as f_out:
-#        json.dump(output_coco, f_out)
-
 
 
 if __name__ == "__main__":

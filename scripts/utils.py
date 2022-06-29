@@ -49,6 +49,7 @@ def generate_saliency_map(model,
                           seed=0):
     np.random.seed(seed)
     image_w, image_h = image_size
+    
     res = [[[np.zeros((image_h, image_w), dtype=np.float32) for _ in range(len(target_boxes[im][ic]))] for ic in range(n_classes)] for im in range(len(images))]
 
     for i in tqdm.tqdm(range(n_masks)):

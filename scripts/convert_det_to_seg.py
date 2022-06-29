@@ -1,9 +1,7 @@
-from mmdet.apis import init_detector, inference_detector
-import math
+from mmdet.apis import init_detector
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import tqdm
 import matplotlib.colors as mcolors
 import argparse
 import json
@@ -12,72 +10,7 @@ import imagesize
 import glob
 import torch
 import mmcv
-
-
-
-def generate_mask(image_size, grid_size, prob_thresh):
-    image_w, image_h = image_size
-    grid_w, grid_h = grid_size
-    cell_w, cell_h = math.ceil(image_w / grid_w), math.ceil(image_h / grid_h)
-    up_w, up_h = (grid_w + 1) * cell_w, (grid_h + 1) * cell_h
-
-    mask = (np.random.uniform(0, 1, size=(grid_h, grid_w)) <
-            prob_thresh).astype(np.float32)
-    mask = cv2.resize(mask, (up_w, up_h), interpolation=cv2.INTER_LINEAR)
-    offset_w = np.random.randint(0, cell_w)
-    offset_h = np.random.randint(0, cell_h)
-    mask = mask[offset_h:offset_h + image_h, offset_w:offset_w + image_w]
-    return mask
-
-
-
-def mask_image(image, mask):
-    masked = ((image.astype(np.float32) / 255 * np.dstack([mask] * 3)) *
-              255).astype(np.uint8)
-    return masked
-
-
-
-def iou(boxes, box):
-    box = np.asarray(box)
-    tl = np.maximum(boxes[:,:2], box[:2])
-    br = np.minimum(boxes[:,2:], box[2:])
-    intersection = np.prod(br - tl, axis=1) * np.all(tl < br, axis=1).astype(float)
-    area1 = np.prod(boxes[:,2:] - boxes[:,:2], axis=1)
-    area2 = np.prod(box[2:] - box[:2])
-    return intersection / (area1 + area2 - intersection)
-
-
-
-def generate_saliency_map(model,
-                          images,
-                          image_size,
-                          n_classes,
-                          target_boxes,
-                          prob_thresh=0.5,
-                          grid_size=(16, 16),
-                          n_masks=5000,
-                          seed=0):
-    np.random.seed(seed)
-    image_w, image_h = image_size
-    res = [[[np.zeros((image_h, image_w), dtype=np.float32) for _ in range(len(target_boxes[im][ic]))] for ic in range(n_classes)] for im in range(len(images))]
-
-    for i in tqdm.tqdm(range(n_masks)):
-        mask = generate_mask(image_size=(image_w, image_h),
-                             grid_size=grid_size,
-                             prob_thresh=prob_thresh)
-        masked = [mask_image(im, mask) for im in images]
-        out = inference_detector(model, masked)
-        for im in range(len(images)):
-            for ic in range(n_classes):
-                boxes = target_boxes[im][ic]
-                pred = out[im][ic]
-                if len(pred) > 0 and len(boxes) > 0:
-                    score = np.stack([iou(boxes, box) * score for *box, score in pred]).max(axis=0)
-                    for ib in range(len(target_boxes[im][ic])):
-                        res[im][ic][ib] += mask * score[ib]
-    return res
-
+from utils import generate_saliency_map
 
 
 def parse_yolo_annotation(annotation_txtpath):
@@ -149,13 +82,18 @@ def main(args):
     print(f'{len(images)} images after removing already processed')
 
     # do not process images with no annotations
+    no_annot = []
     for im in images:
         annot = parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt'))
         if annot is None:
-            cv2.imwrite( f'{args.output}/{im.split("/")[-1].replace(".jpg", ".png")}', np.zeros((image_size[1], image_size[0])) )
-            images.remove(im)
-    print(f'{len(images)} images after removing those without annotations')
+            no_annot.append(im)
 
+    for im in no_annot:
+        cv2.imwrite( f'{args.output}/{im.split("/")[-1].replace(".jpg", ".png")}', np.zeros((image_size[1], image_size[0])) )
+        images.remove(im)
+        
+    print(f'{len(images)} images after removing those without annotations')
+    
     # get number of classes and image size for inference from mmdetection config
     config = mmcv.Config.fromfile(args.config)
     n_class = len(config.data.train.classes)
@@ -175,7 +113,9 @@ def main(args):
     # perform inference
     # split images into batches to run the inference
     img_batch_size = args.batch_size
-    img_n_batch = len(images) // img_batch_size + 1
+    img_n_batch = len(images) // img_batch_size
+    if len(images) % img_batch_size != 0:
+        img_n_batch += 1
     img_batches = np.array_split( np.array(images), img_n_batch )
 
     for batch in img_batches:
@@ -191,7 +131,6 @@ def main(args):
                                    interpolation=cv2.INTER_AREA)
             images.append(image)
             target_boxes.append( yolo_annotations_to_box(parse_yolo_annotation(im.replace(args.image_path, args.annot_path).replace('.jpg', '.txt')), image_size, n_class) )
-
         saliency_map = generate_saliency_map(model,
                                              images,
                                              image_size,

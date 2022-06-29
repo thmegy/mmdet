@@ -130,6 +130,8 @@ def main(args):
                 # split images into batches to run the inference
                 img_batch_size = args.batch_size
                 img_n_batch = len(pool_img) // img_batch_size
+                if len(pool_img) % img_batch_size != 0:
+                    img_n_batch += 1
                 img_batches = np.array_split( np.array(pool_img), img_n_batch )
 
                 uncertainty = []

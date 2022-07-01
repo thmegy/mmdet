@@ -150,7 +150,7 @@ if __name__ == "__main__":
             # Compute and draw results
             for i, gt_matches in enumerate(matches_matrix.T):
                 num_matches = gt_matches.sum()
-                if num_matches == 1:
+                if num_matches >= 1:
                     # Draw true positives as green
                     pred_idx = gt_matches.argmax()
                     x1, y1, x2, y2 = pred[pred_idx][:4]

@@ -75,6 +75,12 @@ def main(args):
     print('Image size = ', image_size)
     print(f'{len(images)} images in total')
 
+    images_other_sizes = []
+    for im in images:
+        size = imagesize.get(im)
+        if size[0] != image_size[0] or size[1] != image_size[1]:
+            images_other_sizes.append(im)
+    
     # get list of images already processed
     if not args.from_scratch:
         already_processed = glob.glob(f'{args.output}/*png')
@@ -112,11 +118,14 @@ def main(args):
 
     # perform inference
     # split images into batches to run the inference
-    img_batch_size = args.batch_size
-    img_n_batch = len(images) // img_batch_size
-    if len(images) % img_batch_size != 0:
-        img_n_batch += 1
-    img_batches = np.array_split( np.array(images), img_n_batch )
+    if len(images)==0:
+        img_batches = []
+    else:
+        img_batch_size = args.batch_size
+        img_n_batch = len(images) // img_batch_size
+        if len(images) % img_batch_size != 0:
+            img_n_batch += 1
+        img_batches = np.array_split( np.array(images), img_n_batch )
 
     for batch in img_batches:
         images = []
@@ -160,6 +169,18 @@ def main(args):
                         seg_map = np.where(segmentation_mask, ic+1, seg_map)
     
             cv2.imwrite(f'{args.output}/{batch[im].split("/")[-1].replace(".jpg", ".png")}', seg_map)
+
+    # resize annotations for images with different sizes
+    for im in images_other_sizes:
+        size = imagesize.get(im)
+        ann_file = f'{args.output}/{im.split("/")[-1].replace(".jpg", ".png")}'
+        seg_annot = cv2.imread(ann_file)
+        seg_annot = cv2.resize(seg_annot,
+                   None,
+                   fx= size[0] / seg_annot.shape[1],
+                   fy= size[1] / seg_annot.shape[0],
+                   interpolation=cv2.INTER_NEAREST)
+        cv2.imwrite(ann_file, seg_annot)
             
 
 

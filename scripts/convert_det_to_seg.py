@@ -47,14 +47,14 @@ def yolo_annotations_to_box(yolo_annotations, image_size, n_class):
     box_annotations = [[] for _ in range(n_class)]
 
     for annotation in yolo_annotations:
-        x1 = int(round((annotation["x_center"]-annotation['width']) * image_width))
+        x1 = int(round((annotation["x_center"]-annotation['width']/2) * image_width))
         if x1 < 0:
             x1 = 0
-        y1 = int(round((annotation["y_center"]-annotation['height']) * image_height))
+        y1 = int(round((annotation["y_center"]-annotation['height']/2) * image_height))
         if y1 < 0:
             y1 = 0
-        x2 = int(round((annotation["x_center"]+annotation['width']) * image_width))
-        y2 = int(round((annotation["y_center"]+annotation['height']) * image_height))
+        x2 = int(round((annotation["x_center"]+annotation['width']/2) * image_width))
+        y2 = int(round((annotation["y_center"]+annotation['height']/2) * image_height))
         box_annotations[annotation['class_index']].append([x1,y1,x2,y2])
 
     for c in range(n_class):
@@ -147,7 +147,7 @@ def main(args):
                                              target_boxes,
                                              prob_thresh=0.5,
                                              grid_size=(16, 16),
-                                             n_masks=600)
+                                             n_masks=500)
 
         for im in range(len(images)):
             seg_map = np.zeros((image_size[1], image_size[0]))
@@ -180,7 +180,7 @@ def main(args):
                    fx= size[0] / seg_annot.shape[1],
                    fy= size[1] / seg_annot.shape[0],
                    interpolation=cv2.INTER_NEAREST)
-        cv2.imwrite(ann_file, seg_annot)
+        cv2.imwrite(ann_file, cv2.cvtColor(seg_annot, cv2.COLOR_BGR2GRAY))
             
 
 

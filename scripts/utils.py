@@ -67,3 +67,55 @@ def generate_saliency_map(model,
                     for ib in range(len(target_boxes[im][ic])):
                         res[im][ic][ib] += mask * score[ib]
     return res
+
+
+
+def parse_yolo_annotation(annotation_txtpath):
+    """ Parse a yolo annotation file. """
+    annotations = []
+    with open(annotation_txtpath, "rt") as f_in:
+        lines = f_in.readlines()
+        
+        if len(lines) == 0:
+            return None
+        
+        for line in lines:
+            line = line.strip()
+
+            cls, x_center, y_center, width, height = line.split()
+
+            annotations.append(
+                {
+                    "class_index": int(cls),
+                    "x_center": float(x_center),
+                    "y_center": float(y_center),
+                    "width": float(width),
+                    "height": float(height),
+                }
+            )
+    return annotations
+
+
+
+def yolo_annotations_to_box(yolo_annotations, image_size, n_class):
+    """ Convert a yolo annotation list to (x1, y1, x2, y2) coordinates."""
+    image_width = image_size[0]
+    image_height = image_size[1]
+    box_annotations = [[] for _ in range(n_class)]
+
+    for annotation in yolo_annotations:
+        x1 = int(round((annotation["x_center"]-annotation['width']/2) * image_width))
+        if x1 < 0:
+            x1 = 0
+        y1 = int(round((annotation["y_center"]-annotation['height']/2) * image_height))
+        if y1 < 0:
+            y1 = 0
+        x2 = int(round((annotation["x_center"]+annotation['width']/2) * image_width))
+        y2 = int(round((annotation["y_center"]+annotation['height']/2) * image_height))
+        box_annotations[annotation['class_index']].append([x1,y1,x2,y2])
+
+    for c in range(n_class):
+        if len(box_annotations[c]) > 0:
+            box_annotations[c] = np.stack(box_annotations[c])
+
+    return box_annotations

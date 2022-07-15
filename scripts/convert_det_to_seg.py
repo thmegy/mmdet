@@ -96,7 +96,7 @@ def main(args):
                                              target_boxes,
                                              prob_thresh=0.5,
                                              grid_size=(16, 16),
-                                             n_masks=600)
+                                             n_masks=500)
 
         for im in range(len(images)):
             seg_map = np.zeros((image_size[1], image_size[0]))
@@ -129,7 +129,7 @@ def main(args):
                    fx= size[0] / seg_annot.shape[1],
                    fy= size[1] / seg_annot.shape[0],
                    interpolation=cv2.INTER_NEAREST)
-        cv2.imwrite(ann_file, seg_annot)
+        cv2.imwrite(ann_file, cv2.cvtColor(seg_annot, cv2.COLOR_BGR2GRAY))
             
 
 

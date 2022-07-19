@@ -1,5 +1,6 @@
 import argparse
 import mmdet.apis
+import mmcv
 import json
 import os
 import cv2 as cv
@@ -14,8 +15,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="mmdetection config")
     parser.add_argument("--checkpoint", required=True, help="mmdetection checkpoint")
-    parser.add_argument("--dataset", required=True, help="JSON cocolike dataset")
-    parser.add_argument("--images-dir", required=True, help="Directory containing the images" )
     parser.add_argument("--viz-dir", required=True, help="Directory where visualizations will be saved")
     parser.add_argument("--score-threshold", type=float, default=0.5, help="Score threshold")
     parser.add_argument("--iou-threshold", type=float, default=0.5, help="iou threshold")
@@ -23,8 +22,11 @@ def parse_arguments():
     parser.add_argument("--is-seg", action='store_true', help="Instance segmentation network, mask is expected in predictions")
     args = parser.parse_args()
 
-    os.makedirs(args.viz_dir, exist_ok=True)
-    
+    os.makedirs(f'{args.viz_dir}/only_TP', exist_ok=True) 
+    os.makedirs(f'{args.viz_dir}/FN', exist_ok=True) 
+    os.makedirs(f'{args.viz_dir}/FP', exist_ok=True) 
+    os.makedirs(f'{args.viz_dir}/FP_FN', exist_ok=True) 
+   
     return args
 
 
@@ -89,8 +91,11 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     detector = mmdet.apis.init_detector(args.config, args.checkpoint, device=f'cuda:{args.gpu_id}')
-
-    with open(args.dataset, "rt") as f_in:
+    config = mmcv.Config.fromfile(args.config)
+    dataset_path = config.data.test.ann_file
+    images_dir = config.data.test.img_prefix
+    
+    with open(dataset_path, "rt") as f_in:
         dataset = json.load(f_in)
 
     n_classes = len(dataset['categories'])
@@ -112,7 +117,7 @@ if __name__ == "__main__":
     all_false_negatives = 0
     for image_info in tqdm.tqdm(dataset["images"]):
 
-        image_path = os.path.join(args.images_dir, image_info["file_name"])
+        image_path = os.path.join(images_dir, image_info["file_name"])
         image = cv.imread(image_path)
 
         predictions = mmdet.apis.inference_detector(detector, image_path)
@@ -185,7 +190,16 @@ if __name__ == "__main__":
         all_false_positives += false_positives
         all_false_negatives += false_negatives
 
-        viz_path = os.path.join(args.viz_dir, f"{image_info['file_name']}.jpg")
+        if false_positives == 0 and false_negatives == 0:
+            outdir = 'only_TP'
+        elif false_positives == 0 and false_negatives > 0:
+            outdir = 'FN'
+        elif false_positives > 0 and false_negatives == 0:
+            outdir = 'FP'
+        else:
+            outdir = 'FP_FN'
+            
+        viz_path = f'{args.viz_dir}/{outdir}/{image_info["file_name"]}.jpg'
         cv.imwrite(viz_path, image)
 
 #        print(viz_path, true_positives, false_positives, false_negatives)

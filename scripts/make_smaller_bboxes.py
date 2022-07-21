@@ -9,7 +9,7 @@ import imagesize
 import torch
 import mmcv
 import tqdm
-from utils import generate_saliency_map, parse_yolo_annotation, yolo_annotations_to_box
+from utils import generate_saliency_map, parse_yolo_annotation, yolo_annotations_to_box, distance, bbox_to_yolo_annotations
 
 
 
@@ -62,16 +62,6 @@ def nms(boxes, scores, thresh):
         order = order[inds + 1]
 
     return keep
-
-
-
-def distance(boxes, box):
-    '''
-    Get distance between selected corners in box and boxes
-    '''
-    d = np.sum(box**2 + boxes**2 - 2*box*boxes, axis=1)
-    d = np.sqrt(d)
-    return d
 
 
 
@@ -130,20 +120,6 @@ def get_boxes_diagonal(target_boxes):
             other_boxes.append([])
             
     return boxes_diagonal, other_boxes
-
-
-
-def bbox_to_yolo_annotations(bbox, image_size):
-    """ Convert (x1, y1, x2, y2) coordinates to a yolo annotation."""
-    image_width = image_size[0]
-    image_height = image_size[1]
-
-    x_center = (bbox[2] + bbox[0]) / 2 / image_width
-    y_center = (bbox[3] + bbox[1]) / 2 / image_height
-    width = (bbox[2] - bbox[0]) / image_width
-    height = (bbox[3] - bbox[1]) / image_height
-
-    return x_center, y_center, width, height
 
 
 

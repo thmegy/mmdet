@@ -42,9 +42,20 @@ def main(args):
         for cls, boxes in zip(classes, target_boxes):
             for ib, box in enumerate(boxes):
                 x1, y1, x2, y2 = box
+                # require bboxes to have a minimal height and width --> avoids weird behaviours when resizing before training
+                if (x2-x1) < 30:
+                    x1 = x1 - 15
+                    x2 = x2 + 15
+                if (y2-y1) < 30:
+                    y1 = y1 - 15
+                    y2 = y2 + 15
                 crop = im[y1:y2, x1:x2]
                 crop_path = im_path.replace('.jpg', f'_{ib}.jpg').replace(args.image_path, f'{args.output}/{cls}/')
-                cv2.imwrite(crop_path, crop)
+                try:
+                    cv2.imwrite(crop_path, crop)
+                except:
+                    print(im_path)
+                    print(x1, y1, x2, y2)
 
                 # save cropped box coordinates
                 with open(crop_path.replace('.jpg', '.txt'), 'w') as f_out:

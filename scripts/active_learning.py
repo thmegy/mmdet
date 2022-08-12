@@ -7,6 +7,7 @@ from mmdet.utils import select_images
 import numpy as np
 import torch
 import tqdm
+import glob
 os.environ['MKL_THREADING_LAYER'] = 'GNU'
 
 
@@ -43,7 +44,57 @@ def update_train_pool(train, pool, selection, pool_img=None):
 
 
 
-def main(args):    
+def prod(args):
+    '''
+    Run inference on a set of unlabelled images to predict uncertainty, the select images to be labelled.
+    '''
+    config = mmcv.Config.fromfile(args.config)
+    try:
+        test_cfg = config.model.bbox_head.test_cfg
+    except:
+        test_cfg = config.model.test_cfg
+    
+    # inference over pool images
+    detector = mmdet.apis.init_detector(
+        args.config,
+        args.checkpoint,
+        device=f'cuda:{args.gpu_id}',
+    )
+                
+    # split images into batches to run the inference
+    pool_img = glob.glob(f'{args.image_path}/*jpg')
+    img_batch_size = args.batch_size
+    img_n_batch = len(pool_img) // img_batch_size
+    if len(pool_img) % img_batch_size != 0:
+        img_n_batch += 1
+    img_batches = np.array_split( np.array(pool_img), img_n_batch )
+    
+    uncertainty = []
+                
+    print('\nRunning inference on pool set')
+    for img_batch in tqdm.tqdm(img_batches):
+        uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
+    uncertainty = torch.concat(uncertainty)
+    
+    # select images to be added to the training set
+    selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs)
+
+    print(uncertainty)
+    print(selection)
+    print(pool_img)
+    
+    with open(args.output, 'w') as f:
+        for idx in selection:
+            f.write(pool_img[idx].split('/')[-1])
+            f.write('\n')
+
+            
+
+def test(args):
+    '''
+    Test a given Active Learning method. Start from an already labelled dataset, split the dataset between initial training set and pool set.
+    Run N rounds of AL. For each round, train the detection model, then select images from pool set that are added to the training set.
+    '''
     config_AL = args.config.replace('.py', '_AL.py')
 
     if args.auto_resume:
@@ -206,13 +257,22 @@ def main(args):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
+
+    parser.add_argument('--mode', choices=['production', 'test'], help='Production mode: return list of images to label; Test mode: run n-round AL iterations using already labelled data.')
+    
     parser.add_argument('--config', required=True, help='mmdetection config')
-    parser.add_argument('--work-dir', required=True, help='output directory')
-    parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
     parser.add_argument('--batch-size', default=50, type=int, help='Number of images in inference batch')
     parser.add_argument('--n-gpu', default=1, type=int, help='Number of GPUs to use')
     parser.add_argument('--gpu-id', type=int, default=0, help='id of gpu to use ')
 
+    # for production mode
+    parser.add_argument("--checkpoint", help="mmdetection checkpoint")
+    parser.add_argument('--image-path', type=str, help='Path to pool images, i.e. unlabelled.')
+    parser.add_argument('--output', type=str, help='Path to output txt file with list of images to be labelled')
+    
+    # for test mode
+    parser.add_argument('--work-dir', help='output directory')
+    parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
     parser.add_argument('--do-split', action='store_true', help='Split original training set into starting training set and pool set')
     parser.add_argument('--n-init', default=1000, type=int, help='Number of initially labelled images')
     parser.add_argument('--do-init-train', action='store_true', help='Perform initial training')
@@ -225,4 +285,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    main(args)
+    if args.mode == 'production':
+        prod(args)
+    elif args.mode == 'test':
+        test(args)

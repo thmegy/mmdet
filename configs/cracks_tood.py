@@ -3,6 +3,18 @@ _base_ = '../mmdetection/configs/tood/tood_r101_fpn_dconv_c3-c5_mstrain_2x_coco.
 model = dict(
     bbox_head=dict(
         num_classes=6
+    ),
+    test_cfg = dict(
+        active_learning = dict(
+            score_method = 'Entropy',
+            aggregation_method = 'sum',
+            selection_method = 'maximum',
+            n_sel = 5,
+            selection_kwargs = dict(
+                batch_size = 10,
+            ),
+            alpha = 0.5 # proba for sampler used if incremental learning
+        )
     )
 )
 

@@ -45,14 +45,20 @@ A distribution of the bbox sizes can be produced with:
 ```
 python scripts/get_bbox_size.py --infile <path-to-coco-annotation-file.json>
 ```
-The number of small (area < 32*32 pixels), medium (32*32 < area < 96*96) and large (area > 96*96) objects is also computed.
+The number of small (area < 32x32 pixels), medium (32x32 < area < 96x96) and large (area > 96x96) objects is also computed.
 
 
 ## Active Learning (AL)
 
+The AL script `scripts/active_learning.py` has two modes: production and test.
+The production mode is used to select images to be labelled, based on a given AL strategy. A typical command is:
+```
+python scripts/active_learning.py --mode production --config <path-to-config> --checkpoint <path-to-trained-model> --image-path <path-to-unlabelled-images> --output <path-to-output-file>
+```
+
 Active learning procedures can be tested with:
 ```
-python scripts/active_learning.py --config <path-to-config> --work-dir <output-directory> --n-round <AL-iterations>
+python scripts/active_learning.py --mode test --config <path-to-config> --work-dir <output-directory> --n-round <AL-iterations>
 ```
 This script manages the dataset and launches the trainings for each AL iteration. The dataset is expected to have the `CocoDataset` format.  
 The full dataset is automatically split between a reduced training set and a pool set, if the sets do not already exist. The number of images in the initial pool set is chosen with `--n-init`. If the the pool and training sets already exist, a new split can be made using the argument `--do-split`.  
@@ -86,3 +92,20 @@ The various score, aggregation and selection methods are implemented in [mmdetec
 
 Before using a given detection models in an AL procedure, it is necessary to modify the model's head such that, at inference time, it returns the images uncertainty instead of predicted bounding boxes if an AL procedure is ongoing.  
 For YOLOv3, the modifications can be found in [mmdetection/mmdet/models/dense_heads/yolo_head.py](https://github.com/thmegy/mmdetection/blob/master/mmdet/models/dense_heads/yolo_head.py#L209)
+
+### Plotting
+
+Summary plots for AL tests can be produced with `scripts/plot_active_learning.py`.
+
+
+## Interpretability with D-RISE
+
+Use D-RISE method to convert detection annotations in yolo format into segmentation masks with `scripts/convert_det_to_seg.py`.
+Explain results of a model with `scripts/explain_image_D_RISE.py`.
+
+## Modify annotations
+
+Turn detection annotations into classification annotations by cropping bboxes with `scripts/convert_yolo_to_cls.py`.  
+Modifiers for diagonal defects in cracks dataset:
+- add overlapping bboxes with `scripts/make_overlap_bboxes.py`;
+- use trained model to infer smaller bboxes, within annotated bboxes, with `scripts/make_smaller_bboxes.py`.

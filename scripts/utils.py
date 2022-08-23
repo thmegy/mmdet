@@ -145,3 +145,6 @@ def distance(boxes, box):
     return d
 
 
+def coco_to_box(box):
+    return [box[0], box[1], box[0]+box[2], box[1]+box[3]]
+

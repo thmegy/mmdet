@@ -53,12 +53,12 @@ The number of small (area < 32x32 pixels), medium (32x32 < area < 96x96) and lar
 The AL script `scripts/active_learning.py` has two modes: production and test.
 The production mode is used to select images to be labelled, based on a given AL strategy. A typical command is:
 ```
-python scripts/active_learning.py --mode production --config <path-to-config> --checkpoint <path-to-trained-model> --image-path <path-to-unlabelled-images> --output <path-to-output-file>
+python scripts/active_learning.py --config <path-to-config> prod --checkpoint <path-to-trained-model> --image-path <path-to-unlabelled-images> --output <path-to-output-file>
 ```
 
 Active learning procedures can be tested with:
 ```
-python scripts/active_learning.py --mode test --config <path-to-config> --work-dir <output-directory> --n-round <AL-iterations>
+python scripts/active_learning.py --config <path-to-config> test --work-dir <output-directory> --n-round <AL-iterations>
 ```
 This script manages the dataset and launches the trainings for each AL iteration. The dataset is expected to have the `CocoDataset` format.  
 The full dataset is automatically split between a reduced training set and a pool set, if the sets do not already exist. The number of images in the initial pool set is chosen with `--n-init`. If the the pool and training sets already exist, a new split can be made using the argument `--do-split`.  

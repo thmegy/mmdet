@@ -258,7 +258,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--mode', choices=['production', 'test'], help='Production mode: return list of images to label; Test mode: run n-round AL iterations using already labelled data.')
+    subparsers = parser.add_subparsers(dest='mode', help='Prod mode: return list of images to label; Test mode: run n-round AL iterations using already labelled data.')
     
     parser.add_argument('--config', required=True, help='mmdetection config')
     parser.add_argument('--batch-size', default=50, type=int, help='Number of images in inference batch')
@@ -266,26 +266,28 @@ if __name__ == '__main__':
     parser.add_argument('--gpu-id', type=int, default=0, help='id of gpu to use ')
 
     # for production mode
-    parser.add_argument("--checkpoint", help="mmdetection checkpoint")
-    parser.add_argument('--image-path', type=str, help='Path to pool images, i.e. unlabelled.')
-    parser.add_argument('--output', type=str, help='Path to output txt file with list of images to be labelled')
+    parser_prod = subparsers.add_parser('prod')
+    parser_prod.add_argument("--checkpoint", help="mmdetection checkpoint")
+    parser_prod.add_argument('--image-path', type=str, help='Path to pool images, i.e. unlabelled.')
+    parser_prod.add_argument('--output', type=str, help='Path to output txt file with list of images to be labelled')
     
     # for test mode
-    parser.add_argument('--work-dir', help='output directory')
-    parser.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
-    parser.add_argument('--do-split', action='store_true', help='Split original training set into starting training set and pool set')
-    parser.add_argument('--n-init', default=1000, type=int, help='Number of initially labelled images')
-    parser.add_argument('--do-init-train', action='store_true', help='Perform initial training')
+    parser_test = subparsers.add_parser('test')
+    parser_test.add_argument('--work-dir', help='output directory')
+    parser_test.add_argument('--n-round', default=10, type=int, help='Number of iterations for active learning')
+    parser_test.add_argument('--do-split', action='store_true', help='Split original training set into starting training set and pool set')
+    parser_test.add_argument('--n-init', default=1000, type=int, help='Number of initially labelled images')
+    parser_test.add_argument('--do-init-train', action='store_true', help='Perform initial training')
 
-    parser.add_argument('--incremental-learning', action='store_true', help='Do not train from scratch at each round, start from latest checkpoint of previous round')
-    parser.add_argument('--n-iter', default=100, type=int, help='Number of training iteration at each round')
+    parser_test.add_argument('--incremental-learning', action='store_true', help='Do not train from scratch at each round, start from latest checkpoint of previous round')
+    parser_test.add_argument('--n-iter', default=100, type=int, help='Number of training iteration at each round')
 
-    parser.add_argument('--auto-resume', action='store_true', help='Resume training from latest checkpoint of round given in --resume-round')
-    parser.add_argument('--resume-round', default=0, type=int, help='Round to resume from if --auto-resume is used')
+    parser_test.add_argument('--auto-resume', action='store_true', help='Resume training from latest checkpoint of round given in --resume-round')
+    parser_test.add_argument('--resume-round', default=0, type=int, help='Round to resume from if --auto-resume is used')
 
     args = parser.parse_args()
 
-    if args.mode == 'production':
+    if args.mode == 'prod':
         prod(args)
     elif args.mode == 'test':
         test(args)

@@ -6,7 +6,7 @@ import imagesize
 import torch
 import mmcv
 import tqdm
-from utils import generate_saliency_map, parse_yolo_annotation, yolo_annotations_to_box, distance, bbox_to_yolo_annotations
+from utils import parse_yolo_annotation, yolo_annotations_to_box, distance, bbox_to_yolo_annotations
 
 
 

@@ -49,7 +49,7 @@ def main(args):
                                          n_class,
                                          [pred_boxes], # need to be a list of images, even if only one
                                          prob_thresh=0.5,
-                                         grid_size=(50, 50),
+                                         grid_size=(25, 25),
                                          n_masks=600)
 
     saliency_map = saliency_map[0] # only one image

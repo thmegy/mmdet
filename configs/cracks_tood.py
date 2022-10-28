@@ -2,7 +2,7 @@ _base_ = '../mmdetection/configs/tood/tood_r101_fpn_dconv_c3-c5_mstrain_2x_coco.
 
 model = dict(
     bbox_head=dict(
-        num_classes=6
+        num_classes=12
     ),
     test_cfg = dict(
         active_learning = dict(
@@ -58,8 +58,9 @@ test_pipeline = [
 
 # data settings
 dataset_type = 'CocoDataset'
-classes = ('Arrachement_pelade', 'Faiencage', 'Nid_de_poule', 'Transversale', 'Longitudinale', 'Reparation')
-data_root = 'data/cracks/10746/'
+#classes = ('Arrachement_pelade', 'Faiencage', 'Nid_de_poule', 'Transversale', 'Longitudinale', 'Reparation')
+classes = ('Arrachement_pelade', 'Faiencage', 'Nid_de_poule', 'Transversale', 'Longitudinale', 'Pontage_de_fissures', 'Remblaiement_de_tranchees', 'Raccord_de_chaussee', 'Comblage_de_trou_ou_Projection_d_enrobe', 'Bouche_a_clef', 'Grille_avaloir', 'Regard_tampon')
+data_root = 'data/cracks_12_classes/'
 data = dict(
     samples_per_gpu=8,
     workers_per_gpu=2,
@@ -67,6 +68,7 @@ data = dict(
         type=dataset_type,
         ann_file=data_root + 'cracks_train.json',
         img_prefix='/home/finn/DATASET/CRACKS/Logiroad_10746_images/',
+#        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
         classes=classes,
         pipeline=train_pipeline
     ),
@@ -74,6 +76,7 @@ data = dict(
         type=dataset_type,
         ann_file=data_root + 'cracks_val.json',
         img_prefix='/home/finn/DATASET/CRACKS/Logiroad_10746_images/',
+#        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
         classes=classes,
         pipeline=test_pipeline
     ),
@@ -81,6 +84,7 @@ data = dict(
         type=dataset_type,
         ann_file=data_root + 'cracks_test.json',
         img_prefix='/home/finn/DATASET/CRACKS/Logiroad_10746_images/',
+#        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
         classes=classes,
         pipeline=test_pipeline
     )
@@ -93,7 +97,7 @@ log_config = dict(
 )
 
 # training parameters
-load_from='checkpoints/tood_r101_fpn_dconv_c3-c5_mstrain_2x_coco_20211210_213728-4a824142.pth'
+load_from='pretrained_checkpoints/tood_r101_fpn_dconv_c3-c5_mstrain_2x_coco_20211210_213728-4a824142.pth'
 #optimizer = dict(lr=2e-4 * 1 / 32) # learning rate scaling done automatically with --auto-scale-lr argument
 checkpoint_config = dict(interval=5) # save checkpoint every 10 epochs
 evaluation = dict(interval=5)

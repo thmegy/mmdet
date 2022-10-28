@@ -11,7 +11,7 @@ from utils import parse_yolo_annotation, yolo_annotations_to_box
 
 
 
-colors_list = [[1,0,0], [0,1,0], [0,0,1], [1,0,1], [0,1,1], [1,1,0]]
+colors_list = [[1,0,0], [0,1,0], [0,0,1], [1,0,1], [0,1,1], [1,1,0], [1,0,1], [0.5,1,0], [0,0.5,1], [1,0.5,1], [0.5,1,1], [1,1,0.5]]
 
 
 def main(args):
@@ -40,6 +40,9 @@ def main(args):
         image_size = imagesize.get(im_path)
         target_boxes = yolo_annotations_to_box(annot, image_size, n_class)
 
+#        if len(target_boxes[7]) == 0:
+#            continue
+        
         image = cv2.imread(im_path)
         
         for ic in range(n_class):

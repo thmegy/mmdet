@@ -112,7 +112,7 @@ def test(args):
         if args.do_split or not os.path.isfile(train_set_name):
             with open(train_set_orig, 'rt') as f:
                 pool = json.load(f)
-            train = {'images':[], 'type':pool['type'], 'categories':pool['categories'], 'annotations':[]}
+            train = {'images':[], 'categories':pool['categories'], 'annotations':[]}
                 
             selection = select_random(len(pool['images']), args.n_init)
             train, pool = update_train_pool(train, pool, selection)
@@ -135,27 +135,30 @@ def test(args):
             # test
             os.system( f'CUDA_VISIBLE_DEVICES={args.gpu_id} python mmdetection/tools/test.py {config_AL} {workdir}/latest.pth --work-dir {workdir} --eval bbox' )
 
-    # create list of pool images
-    img_path = config.data.train.img_prefix
-    with open(pool_set_name, 'rt') as f:
-        pool = json.load(f)
-        pool_img = [os.path.join(img_path, im['file_name']) for im in pool['images']]
-
-    with open(train_set_name, 'rt') as f:
-        train = json.load(f)
-
     try:
         test_cfg = config.model.bbox_head.test_cfg
     except:
         test_cfg = config.model.test_cfg
-
-    if test_cfg.active_learning.selection_method == 'random':
-        method = 'random'
+            
+    if args.transfer_selection:
+        method = args.method
     else:
-        method = f'{test_cfg.active_learning.score_method}_{test_cfg.active_learning.aggregation_method}_{test_cfg.active_learning.selection_method}'
+        # create list of pool images
+        img_path = config.data.train.img_prefix
+        with open(pool_set_name, 'rt') as f:
+            pool = json.load(f)
+            pool_img = [os.path.join(img_path, im['file_name']) for im in pool['images']]
 
-    if test_cfg.active_learning.selection_method == 'CoreSet': # needed to use correct gpu in feature vector calculation
-        torch.cuda.set_device(args.gpu_id)
+        with open(train_set_name, 'rt') as f:
+            train = json.load(f)
+
+        if test_cfg.active_learning.selection_method == 'random':
+            method = 'random'
+        else:
+            method = f'{test_cfg.active_learning.score_method}_{test_cfg.active_learning.aggregation_method}_{test_cfg.active_learning.selection_method}'
+
+        if test_cfg.active_learning.selection_method == 'CoreSet': # needed to use correct gpu in feature vector calculation
+            torch.cuda.set_device(args.gpu_id)
 
         
     # loop over active learning iterations
@@ -168,66 +171,72 @@ def test(args):
         print(f'\nRound {ir}\n')
 
         if not args.auto_resume or ir > args.resume_round:
-            if test_cfg.active_learning.selection_method == 'random':
-                selection = select_random(len(pool_img), test_cfg.active_learning.n_sel)
-            else:
-                # inference over pool images
-                detector = mmdet.apis.init_detector(
-                    config_AL,
-                    f'{workdir}/latest.pth',
-                    device=f'cuda:{args.gpu_id}',
-                )
-                
-                # split images into batches to run the inference
-                img_batch_size = args.batch_size
-                img_n_batch = len(pool_img) // img_batch_size
-                if len(pool_img) % img_batch_size != 0:
-                    img_n_batch += 1
-                img_batches = np.array_split( np.array(pool_img), img_n_batch )
 
-                uncertainty = []
-                representation = []
+            if not args.transfer_selection:
+
+                if test_cfg.active_learning.selection_method == 'random':
+                    selection = select_random(len(pool_img), test_cfg.active_learning.n_sel)
+                else:
+                    # inference over pool images
+                    detector = mmdet.apis.init_detector(
+                        config_AL,
+                        f'{workdir}/latest.pth',
+                        device=f'cuda:{args.gpu_id}',
+                    )
                 
-                print('\nRunning inference on pool set')
-                for img_batch in tqdm.tqdm(img_batches):
+                    # split images into batches to run the inference
+                    img_batch_size = args.batch_size
+                    img_n_batch = len(pool_img) // img_batch_size
+                    if len(pool_img) % img_batch_size != 0:
+                        img_n_batch += 1
+                    img_batches = np.array_split( np.array(pool_img), img_n_batch )
+
+                    uncertainty = []
+                    representation = []
+                
+                    print('\nRunning inference on pool set')
+                    for img_batch in tqdm.tqdm(img_batches):
+                        if test_cfg.active_learning.selection_method == 'CoreSet':
+                            unc, rep = mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True, repr_selection=True)
+                            uncertainty.append(unc)
+                            representation.append(rep)
+                        else:
+                            uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
+
+                    uncertainty = torch.concat(uncertainty)
                     if test_cfg.active_learning.selection_method == 'CoreSet':
-                        unc, rep = mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True, repr_selection=True)
-                        uncertainty.append(unc)
-                        representation.append(rep)
-                    else:
-                        uncertainty.append( mmdet.apis.inference_detector(detector, img_batch.tolist(), active_learning=True) )
-
-                uncertainty = torch.concat(uncertainty)
-                if test_cfg.active_learning.selection_method == 'CoreSet':
-                    representation = torch.concat(representation)
-                torch.cuda.empty_cache()
-                del detector
-                # select images to be added to the training set
-                selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs, embedding=representation)
-                # free gpu memory
-                del uncertainty
+                        representation = torch.concat(representation)
+                    torch.cuda.empty_cache()
+                    del detector
+                    # select images to be added to the training set
+                    selection = select_images(test_cfg.active_learning.selection_method, uncertainty, test_cfg.active_learning.n_sel, **test_cfg.active_learning.selection_kwargs, embedding=representation)
+                    # free gpu memory
+                    del uncertainty
                 
-            # update training set and pool according to selected images
-            train, pool, pool_img = update_train_pool(train, pool, selection, pool_img=pool_img)
+                # update training set and pool according to selected images
+                train, pool, pool_img = update_train_pool(train, pool, selection, pool_img=pool_img)
 
-            # free gpu memory
-            del selection
-            torch.cuda.empty_cache()
+                # free gpu memory
+                del selection
+                torch.cuda.empty_cache()
 
             
-            # save new train and pool sets
-            if args.auto_resume:
-                with open(pool_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:
-                    json.dump(pool, f_out)
-                with open(train_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:
-                    json.dump(train, f_out)
-                config.data.train.ann_file = train_set_name.replace(f'{args.resume_round}.json', f'{ir}.json') # use updated training set
+                # save new train and pool sets
+                if args.auto_resume:
+                    with open(pool_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:
+                        json.dump(pool, f_out)
+                    with open(train_set_name.replace(f'{args.resume_round}.json', f'{ir}.json'), "wt") as f_out:
+                        json.dump(train, f_out)
+                    config.data.train.ann_file = train_set_name.replace(f'{args.resume_round}.json', f'{ir}.json') # use updated training set
+                else:
+                    with open(pool_set_name.replace('init.json', f'{method}_{ir}.json'), "wt") as f_out:
+                        json.dump(pool, f_out)
+                    with open(train_set_name.replace('init.json', f'{method}_{ir}.json'), "wt") as f_out:
+                        json.dump(train, f_out)
+                    config.data.train.ann_file = train_set_name.replace('init.json', f'{method}_{ir}.json') # use updated training set
+
             else:
-                with open(pool_set_name.replace('init.json', f'{method}_{ir}.json'), "wt") as f_out:
-                    json.dump(pool, f_out)
-                with open(train_set_name.replace('init.json', f'{method}_{ir}.json'), "wt") as f_out:
-                    json.dump(train, f_out)
-                config.data.train.ann_file = train_set_name.replace('init.json', f'{method}_{ir}.json') # use updated training set
+                config.data.train.ann_file = train_set_name.replace('init.json', f'{method}_{ir}.json') # use training set determined with other model
 
             # training with updated set
             if args.incremental_learning:
@@ -284,6 +293,9 @@ if __name__ == '__main__':
 
     parser_test.add_argument('--auto-resume', action='store_true', help='Resume training from latest checkpoint of round given in --resume-round')
     parser_test.add_argument('--resume-round', default=0, type=int, help='Round to resume from if --auto-resume is used')
+
+    parser_test.add_argument('--transfer-selection', action='store_true', help='Use images selected by another model, to test generalisability of AL.')
+    parser_test.add_argument('--method', help='Method used to acquire image used in --transfer-selection (e.g. "LossPrediction_none_batch").')
 
     args = parser.parse_args()
 

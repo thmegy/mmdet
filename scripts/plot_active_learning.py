@@ -11,6 +11,7 @@ import os
 color = { # uncertainty method
     '_' : 'black',
     'Entropy' : 'blue',
+    'Entropy_transfer_detr' : 'midnightblue',
     'MarginSampling' : 'red',
     'VarRatio' : 'orange',
     'LossPrediction' : 'green'
@@ -135,7 +136,7 @@ def main(args):
         outname += '_with_std'
     if args.normalise:
         outname += '_normalised'
-    fig.savefig(f'plots/{outname}.pdf')
+    fig.savefig(f'plots/{outname}.jpg')
                 
 
 if __name__ == '__main__':

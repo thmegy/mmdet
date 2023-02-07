@@ -11,7 +11,7 @@ model = dict(
             selection_method = 'random',
             n_sel = 1000,
             selection_kwargs = dict(
-                batch_size = 10,
+                batch_size = 15,
             ),
             alpha = 0.5 # proba for sampler used if incremental learning
         )
@@ -57,7 +57,7 @@ log_config = dict(
 )
 
 # training parameters
-load_from='checkpoints/tood_r101_fpn_dconv_c3-c5_mstrain_2x_coco_20211210_213728-4a824142.pth'
+load_from='pretrained_checkpoints/tood_r101_fpn_dconv_c3-c5_mstrain_2x_coco_20211210_213728-4a824142.pth'
 #optimizer = dict(lr=2e-4 * 1 / 32) # learning rate scaling done automatically with --auto-scale-lr argument
 checkpoint_config = dict(interval=5) # save checkpoint every 10 epochs
 evaluation = dict(interval=5)

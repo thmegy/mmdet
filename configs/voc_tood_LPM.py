@@ -56,7 +56,7 @@ data = dict(
 
 # add tensorboard
 log_config = dict(
-    interval=200,
+    interval=500,
     hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
 )
 

@@ -11,7 +11,7 @@ model = dict(
             selection_method = 'random',
             n_sel = 1000,
             selection_kwargs = dict(
-                batch_size = 10,
+                batch_size = 15,
             ),
             alpha = 0.5 # proba for sampler used if incremental learning
         )
@@ -130,7 +130,7 @@ log_config = dict(
 )
 
 # training parameters
-load_from='checkpoints/deformable_detr_twostage_refine_r50_16x2_50e_coco_20210419_220613-9d28ab72.pth'
+load_from='pretrained_checkpoints/deformable_detr_twostage_refine_r50_16x2_50e_coco_20210419_220613-9d28ab72.pth'
 #optimizer = dict(lr=2e-4 * 1 / 32) # learning rate scaling done automatically with --auto-scale-lr argument
 checkpoint_config = dict(interval=20) # save checkpoint every 10 epochs
 evaluation = dict(interval=20)

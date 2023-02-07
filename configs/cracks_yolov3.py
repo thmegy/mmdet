@@ -19,7 +19,7 @@ model = dict(
             active_learning = dict(
                 score_method = 'MarginSampling',
                 aggregation_method = 'sum',
-                selection_method = 'batch',
+                selection_method = 'CoreSet',
                 n_sel = 100,
                 selection_kwargs = dict(
                     batch_size = 10,
@@ -35,11 +35,11 @@ dataset_type = 'CocoDataset'
 classes = ('Arrachement_pelade', 'Faiencage', 'Nid_de_poule', 'Transversale', 'Longitudinale', 'Reparation')
 data_root = 'data/'
 data = dict(
-    samples_per_gpu=20,
+    samples_per_gpu=18,
     workers_per_gpu=6,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'cracks_train.json',
+        ann_file=data_root + 'cracks_train_AL_19.json',
         img_prefix='/home/finn/DATASET/Logiroad_6_classes_7231/',
         classes=classes,
 #        pipeline=train_pipeline
@@ -72,5 +72,5 @@ checkpoint_config = dict(interval=50) # save checkpoint every 25 epochs
 evaluation = dict(interval=10)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.
-optimizer = dict(type='SGD', lr=0.001*20/64, momentum=0.9, weight_decay=0.0005)
+optimizer = dict(type='SGD', lr=0.001*18/64, momentum=0.9, weight_decay=0.0005)
 #runner = dict(type='EpochBasedRunner', max_epochs=5)

@@ -3,6 +3,18 @@ _base_ = '../mmdetection/configs/deformable_detr/deformable_detr_twostage_refine
 model = dict(
     bbox_head=dict(
         num_classes=12
+    ),
+    test_cfg = dict(
+        active_learning = dict(
+            score_method = 'Entropy',
+            aggregation_method = 'sum',
+            selection_method = 'random',
+            n_sel = 1000,
+            selection_kwargs = dict(
+                batch_size = 10,
+            ),
+            alpha = 0.5 # proba for sampler used if incremental learning
+        )
     )
 )
 
@@ -88,28 +100,28 @@ dataset_type = 'CocoDataset'
 classes = ('Arrachement_pelade', 'Faiencage', 'Nid_de_poule', 'Transversale', 'Longitudinale', 'Pontage_de_fissures', 'Remblaiement_de_tranchees', 'Raccord_de_chaussee', 'Comblage_de_trou_ou_Projection_d_enrobe', 'Bouche_a_clef', 'Grille_avaloir', 'Regard_tampon')
 data_root = 'data/cracks_12_classes/'
 data = dict(
-    samples_per_gpu=6,
+    samples_per_gpu=4,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
         ann_file=data_root + 'cracks_train.json',
-        img_prefix='/home/finn/DATASET/CRACKS/Logiroad_10746_images/',
-#        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
+        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/',
+        #        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
         classes=classes,
         pipeline=train_pipeline
     ),
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'cracks_val.json',
-        img_prefix='/home/finn/DATASET/CRACKS/Logiroad_10746_images/',
+        ann_file=data_root + 'cracks_val_test.json',
+        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/',
 #        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
         classes=classes,
         pipeline=test_pipeline
     ),
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'cracks_test.json',
-        img_prefix='/home/finn/DATASET/CRACKS/Logiroad_10746_images/',
+        ann_file=data_root + 'cracks_val_test.json',
+        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/',
 #        img_prefix='/home/theo/workdir/mmseg/Logiroad_10746_images_road_filter/',
         classes=classes,
         pipeline=test_pipeline
@@ -125,7 +137,7 @@ log_config = dict(
 # training parameters
 load_from='pretrained_checkpoints/deformable_detr_twostage_refine_r50_16x2_50e_coco_20210419_220613-9d28ab72.pth'
 #optimizer = dict(lr=2e-4 * 1 / 32) # learning rate scaling done automatically with --auto-scale-lr argument
-checkpoint_config = dict(interval=5) # save checkpoint every 10 epochs
+checkpoint_config = dict(interval=20) # save checkpoint every 10 epochs
 evaluation = dict(interval=5)
-runner = dict(max_epochs=100)
-lr_config = dict(step=[80])
+runner = dict(max_epochs=30)
+lr_config = dict(step=[24])

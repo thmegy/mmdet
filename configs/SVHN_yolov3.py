@@ -1,4 +1,7 @@
-_base_ = '../mmdetection/configs/yolo/yolov3_d53_fp16_mstrain-608_273e_coco.py'
+_base_ = '../mmdetection/configs/yolo/yolov3_d53_320_273e_coco.py'
+
+# fp16 settings
+fp16 = dict(loss_scale='dynamic')
 
 # model settings
 model = dict(
@@ -23,7 +26,7 @@ dataset_type = 'CocoDataset'
 classes = ('1', '2', '3', '4', '5', '6', '7', '8', '9', '0')
 data_root = 'data/'
 data = dict(
-    samples_per_gpu=20,
+    samples_per_gpu=64,
     workers_per_gpu=6,
     train=dict(
         type=dataset_type,
@@ -60,5 +63,5 @@ checkpoint_config = dict(interval=10) # save checkpoint every 10 epochs
 evaluation = dict(interval=10)
 # The original learning rate (LR) is set for 8-GPU training.
 # We divide it by 8 since we only use one GPU.
-optimizer = dict(type='SGD', lr=0.001*40/64, momentum=0.9, weight_decay=0.0005)
-#runner = dict(type='EpochBasedRunner', max_epochs=75)
+optimizer = dict(type='SGD', lr=0.001*128/64, momentum=0.9, weight_decay=0.0005)
+runner = dict(type='EpochBasedRunner', max_epochs=75)

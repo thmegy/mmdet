@@ -49,7 +49,7 @@ def iou(bbox1, bbox2):
 if __name__ == "__main__":
     args = parse_arguments()
 
-    score_threshold = [0.5, 0.5, 0.4, 0.5, 0.5, 0.4, 0.25, 0.3, 0.3, 0.5, 0.35, 0.5]
+    score_threshold = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
     
     detector = mmdet.apis.init_detector(args.config, args.checkpoint, device=f'cuda:{args.gpu_id}')
     config = mmcv.Config.fromfile(args.config)

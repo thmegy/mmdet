@@ -82,22 +82,23 @@ data = dict(
         dataset=dict(
             type=dataset_type,
             ann_file=data_root + 'cracks_train.json',
-            img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/',
+            img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/train/',
             classes=classes,
-            pipeline=train_pipeline
+            pipeline=train_pipeline,
+            filter_empty_gt=False
         )
     ),
     val=dict(
         type=dataset_type,
         ann_file=data_root + 'cracks_val_test.json',
-        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/',
+        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/val_test/',
         classes=classes,
         pipeline=test_pipeline
     ),
     test=dict(
         type=dataset_type,
         ann_file=data_root + 'cracks_val_test.json',
-        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/',
+        img_prefix='/home/finn/DATASET/ai4cracks-dataset/images/val_test/',
         classes=classes,
         pipeline=test_pipeline
     )
@@ -105,7 +106,7 @@ data = dict(
 
 # add tensorboard
 log_config = dict(
-    interval=4000,
+    interval=3000,
     hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
 )
 

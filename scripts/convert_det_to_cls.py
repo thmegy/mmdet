@@ -19,7 +19,7 @@ def convert_yolo(args):
     
     # get classes from mmdetection config
     config = mmcv.Config.fromfile(args.config)
-    classes = config.data.train.classes
+    classes = config.data.train.dataset.classes
     for cls in classes:
         os.makedirs(f'{args.output}/{cls}/', exist_ok=True)
 

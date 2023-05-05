@@ -22,11 +22,11 @@ def main(args):
     )
 
     # get list of images in directory
-    images = glob.glob(f'{args.im_dir}/*png')
+    images = glob.glob(f'{args.im_dir}/*jpg')
 
     # perform inference
     # split images into batches to run the inference
-    img_batch_size = 5
+    img_batch_size = 3
     img_n_batch = len(images) // img_batch_size
     img_batches = np.array_split( np.array(images), img_n_batch )
     predictions = []
@@ -77,10 +77,10 @@ def main(args):
                         else:
                             ann.append(f'{x1} {y1} {x2} {y2}')                            
             
-#            cv.imwrite(outpath, image)
+            cv.imwrite(outpath, image)
 
             
-        with open(outpath.replace('.png', '.txt'), 'w') as f:
+        with open(outpath.replace('.jpg', '.txt'), 'w') as f:
             for a in ann:
                 f.write(f'{a}\n')
 

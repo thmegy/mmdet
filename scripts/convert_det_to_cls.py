@@ -18,8 +18,8 @@ def convert_yolo(args):
     print(f'{len(images)} images in total')
     
     # get classes from mmdetection config
-    config = mmcv.Config.fromfile(args.config)
-    classes = config.data.train.dataset.classes
+    with open(args.classes, 'r') as fcls:
+        classes = [cls.replace('\n', '') for cls in fcls.readlines()]
     for cls in classes:
         os.makedirs(f'{args.output}/{cls}/', exist_ok=True)
 
@@ -132,7 +132,7 @@ if __name__ == '__main__':
 
     # yolo arguments
     parser_yolo = subparsers.add_parser('yolo')
-    parser_yolo.add_argument('--config', required=True, help='mmdetection config')
+    parser_yolo.add_argument('--classes', required=True, help='path to classes file')
     parser_yolo.add_argument('--image-path', required=True, help='Yolo dataset directory containing .jpg')
     parser_yolo.add_argument('--annot-path', required=True, help='Yolo dataset directory containing .txt')
 

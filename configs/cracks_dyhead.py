@@ -79,7 +79,7 @@ test_evaluator = val_evaluator
 
 # training parameters
 train_cfg = dict(
-    val_interval=2  # Interval for validation, check the performance every 2
+    val_interval=1  # Interval for validation, check the performance every 2
 )
 load_from='pretrained_checkpoints/atss_swin-l-p4-w12_fpn_dyhead_mstrain_2x_coco_20220509_100315-bc5b6516.pth'
 
@@ -90,7 +90,7 @@ default_hooks = dict(
     ),
         logger=dict(
             type='LoggerHook',
-            interval=50
+            interval=5000
     )
 )
 

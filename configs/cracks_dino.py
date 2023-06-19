@@ -16,8 +16,8 @@ train_pipeline = [
             [{
             'type':
             'RandomChoiceResize',
-            'scales': [(480, 1000), (512, 1000), (544, 1000), (576, 1000),
-                       (608, 1000), (640, 1000), (672, 1000), (700, 1000)],
+            'scales': [(480, 900), (512, 900), (544, 900), (576, 900),
+                       (600, 900)],
             'keep_ratio':
             True
             }],
@@ -27,7 +27,7 @@ train_pipeline = [
 ]
 test_pipeline = [
     dict(type='LoadImageFromFile', backend_args=None),
-    dict(type='Resize', scale=(1000, 700), keep_ratio=True),
+    dict(type='Resize', scale=(900, 600), keep_ratio=True),
     dict(type='LoadAnnotations', with_bbox=True),
     dict(
         type='PackDetInputs',

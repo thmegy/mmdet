@@ -103,7 +103,7 @@ def inference_detector(model, imgs, test_pipeline = None):
 
 
 
-def predict_by_feat(model, cls_scores, bbox_preds, score_factors = None,
+def predict_by_feat(model, targets, cls_scores, bbox_preds, score_factors = None,
                     batch_img_metas = None, cfg = None,
                     rescale = False, with_nms = True):
     """Transform a batch of output features extracted from the head into
@@ -162,8 +162,11 @@ def predict_by_feat(model, cls_scores, bbox_preds, score_factors = None,
         dtype=cls_scores[0].dtype,
         device=cls_scores[0].device)
 
+    # get targets
+    (batch_gt_instances, batch_gt_instances_ignore,
+     batch_img_metas) = targets
+
     result_list = []
-    num_boxes_list = []
 
     for img_id in range(len(batch_img_metas)):
         img_meta = batch_img_metas[img_id]
@@ -177,8 +180,10 @@ def predict_by_feat(model, cls_scores, bbox_preds, score_factors = None,
         else:
             score_factor_list = [None for _ in range(num_levels)]
 
-        results, num_boxes = _predict_by_feat_single(
+        results = _predict_by_feat_single(
             model,
+            gt_instances=batch_gt_instances[img_id],
+            gt_instances_ignore=batch_gt_instances_ignore[img_id],            
             cls_score_list=cls_score_list,
             bbox_pred_list=bbox_pred_list,
             score_factor_list=score_factor_list,
@@ -188,12 +193,11 @@ def predict_by_feat(model, cls_scores, bbox_preds, score_factors = None,
             rescale=rescale,
             with_nms=with_nms)
         result_list.append(results)
-        num_boxes_list.append(num_boxes)
-    return result_list, num_boxes_list
+    return result_list
 
 
 
-def _predict_by_feat_single(model, cls_score_list, bbox_pred_list, score_factor_list,
+def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_list, bbox_pred_list, score_factor_list,
                             mlvl_priors, img_meta, cfg, rescale = False,
                             with_nms = True):
     """Transform a single image's features extracted from the head into
@@ -245,13 +249,10 @@ def _predict_by_feat_single(model, cls_score_list, bbox_pred_list, score_factor_
     cfg = model.bbox_head.test_cfg if cfg is None else cfg
     cfg = copy.deepcopy(cfg)
     img_shape = img_meta['img_shape']
-    nms_pre = cfg.get('nms_pre', -1)
 
     mlvl_bbox_preds = []
     mlvl_valid_priors = []
     mlvl_scores = []
-    mlvl_scores_full = []
-    mlvl_labels = []
     if with_score_factors:
         mlvl_score_factors = []
     else:
@@ -277,33 +278,9 @@ def _predict_by_feat_single(model, cls_score_list, bbox_pred_list, score_factor_
             # BG cat_id: num_class
             scores = cls_score.softmax(-1)[:, :-1]
 
-        # After https://github.com/open-mmlab/mmdetection/pull/6268/,
-        # this operation keeps fewer bboxes under the same `nms_pre`.
-        # There is no difference in performance for most models. If you
-        # find a slight drop in performance, you can set a larger
-        # `nms_pre` than before.
-        score_thr = cfg.get('score_thr', 0)
-
-        scores_full = scores.clone()
-        
-        results = mmdet.models.utils.filter_scores_and_topk(
-            scores, score_thr, nms_pre,
-            dict(bbox_pred=bbox_pred, priors=priors))
-        scores, labels, keep_idxs, filtered_results = results
-
-        scores_full = scores_full[keep_idxs]
-        
-        bbox_pred = filtered_results['bbox_pred']
-        priors = filtered_results['priors']
-
-        if with_score_factors:
-            score_factor = score_factor[keep_idxs]
-
         mlvl_bbox_preds.append(bbox_pred)
         mlvl_valid_priors.append(priors)
         mlvl_scores.append(scores)
-        mlvl_scores_full.append(scores_full)
-        mlvl_labels.append(labels)
 
         if with_score_factors:
             mlvl_score_factors.append(score_factor)
@@ -311,66 +288,46 @@ def _predict_by_feat_single(model, cls_score_list, bbox_pred_list, score_factor_
     bbox_pred = torch.cat(mlvl_bbox_preds)
     priors = cat_boxes(mlvl_valid_priors)
     bboxes = model.bbox_head.bbox_coder.decode(priors, bbox_pred, max_shape=img_shape)
-
-    results = InstanceData()
-    results.bboxes = bboxes
-    results.scores = torch.cat(mlvl_scores)
-    results.scores_full = torch.cat(mlvl_scores_full)
-    results.labels = torch.cat(mlvl_labels)
-    if with_score_factors:
-        results.score_factors = torch.cat(mlvl_score_factors)
-
-    return _bbox_post_process(
-        results=results,
-        cfg=cfg,
-        rescale=rescale,
-#        with_nms=with_nms,
-        with_nms=False,
-        img_meta=img_meta),  [len(s) for s in mlvl_scores]
-    
-
-
-def _bbox_post_process(results, cfg, rescale = False,
-                       with_nms = True, img_meta = None):
-    """bbox post-processing method.
-
-    The boxes would be rescaled to the original image scale and do
-    the nms operation. Usually `with_nms` is False is used for aug test.
-
-    Args:
-        results (:obj:`InstaceData`): Detection instance results,
-            each item has shape (num_bboxes, ).
-        cfg (ConfigDict): Test / postprocessing configuration,
-            if None, test_cfg would be used.
-        rescale (bool): If True, return boxes in original image space.
-            Default to False.
-        with_nms (bool): If True, do nms before return boxes.
-            Default to True.
-        img_meta (dict, optional): Image meta info. Defaults to None.
-
-    Returns:
-        :obj:`InstanceData`: Detection results of each image
-        after the post process.
-        Each item usually contains following keys.
-
-            - scores (Tensor): Classification scores, has a shape
-              (num_instance, )
-            - labels (Tensor): Labels of bboxes, has a shape
-              (num_instances, ).
-            - bboxes (Tensor): Has a shape (num_instances, 4),
-              the last dimension 4 arrange as (x1, y1, x2, y2).
-    """
     if rescale:
         assert img_meta.get('scale_factor') is not None
         scale_factor = [1 / s for s in img_meta['scale_factor']]
-        results.bboxes = scale_boxes(results.bboxes, scale_factor)
+        bboxes = scale_boxes(bboxes, scale_factor)
 
-    if hasattr(results, 'score_factors'):
-        # TODO： Add sqrt operation in order to be consistent with
-        #  the paper.
-        score_factors = results.pop('score_factors')
-        results.scores = results.scores * score_factors
-        results.scores_full = (results.scores_full.T * score_factors).T
+    num_level_priors = [len(s) for s in mlvl_scores]
+    mlvl_scores = torch.cat(mlvl_scores)
+    mlvl_score_factors = torch.cat(mlvl_score_factors)
+    
+    # assign a ground truth label to each predicted bbox
+    assign_result = model.bbox_head.assigner.assign(InstanceData(priors=bboxes), num_level_priors,
+                                                    gt_instances, gt_instances_ignore)
+    gt_labels = assign_result.labels
+
+    # filter prediction by score, and topk
+    max_scores, labels = torch.max(mlvl_scores, 1)
+    score_thr = cfg.get('score_thr', 0)
+    valid_mask = max_scores > score_thr
+    valid_idxs = torch.nonzero(valid_mask) 
+    
+    nms_pre = cfg.get('nms_pre', -1)
+    num_topk = min(nms_pre, valid_idxs.size(0))
+    sorted_scores, idxs = max_scores[valid_mask].sort(descending=True)
+    topk_idxs = valid_idxs[idxs[:num_topk]].squeeze()
+
+    mlvl_scores = mlvl_scores[topk_idxs]
+    mlvl_labels = labels[topk_idxs]
+    gt_labels = gt_labels[topk_idxs]
+    mlvl_score_factors = mlvl_score_factors[topk_idxs]
+    bboxes = bboxes[topk_idxs]
+        
+    results = InstanceData()
+    results.bboxes = bboxes
+    results.scores = mlvl_scores
+    results.labels = mlvl_labels
+    results.gt_labels = gt_labels
+
+    # apply scale factors, e.g. centerness for anchor-free detectors
+    if with_score_factors:
+        results.scores = (results.scores.T * mlvl_score_factors).T
 
     # filter small size bboxes
     if cfg.get('min_bbox_size', -1) >= 0:
@@ -382,13 +339,14 @@ def _bbox_post_process(results, cfg, rescale = False,
     # TODO: deal with `with_nms` and `nms_cfg=None` in test_cfg
     if with_nms and results.bboxes.numel() > 0:
         bboxes = get_box_tensor(results.bboxes)
-        det_bboxes, keep_idxs = batched_nms(bboxes, results.scores,
+        det_bboxes, keep_idxs = batched_nms(bboxes, results.scores.max(dim=1)[0],
                                             results.labels, cfg.nms)
         results = results[keep_idxs]
         # some nms would reweight the score, such as softnms
-        results.scores = det_bboxes[:, -1]
+        #results.scores = det_bboxes[:, -1]
         results = results[:cfg.max_per_img]
 
+    
     return results
 
 
@@ -417,30 +375,25 @@ def main(args):
 
     for img in calib_loader:
         img = detector.data_preprocessor(img, False)
-        results = detector(**img, mode='tensor')
+        with torch.no_grad():
+            results = detector(**img, mode='tensor')
 
         # from bbox_head.predict function
         batch_img_metas = [
             data_samples.metainfo for data_samples in img['data_samples']
         ]
 
-        predictions, num_boxes_list = predict_by_feat(detector, *results, batch_img_metas=batch_img_metas, rescale=True)
-        print(predictions[0].scores.size())
         # extract GT bboxes
-        outputs = mmdet.models.utils.unpack_gt_instances(img['data_samples'])
-        (batch_gt_instances, batch_gt_instances_ignore,
-         batch_img_metas) = outputs
+        targets = mmdet.models.utils.unpack_gt_instances(img['data_samples'])
 
-        assign_result = detector.bbox_head.assigner.assign(InstanceData(priors=predictions[0].bboxes),
-                                             num_boxes_list[0],
-                                             batch_gt_instances[0], batch_gt_instances_ignore[0])
-
-        print(batch_gt_instances[0])
-        print(torch.unique(assign_result.labels, return_counts=True))
-        print(assign_result.max_overlaps[assign_result.labels!=-1])
-        print(predictions[0].bboxes[assign_result.labels!=-1])        
+        # get scores for bboxes filtered by score and nms
+        predictions = predict_by_feat(detector, targets, *results, batch_img_metas=batch_img_metas, rescale=True)
+        print(predictions[0].scores.size())  
+        print(predictions[0].scores.max(dim=1))  
+        print(predictions[0].gt_labels)
+        print(1-predictions[0].scores.sum(dim=1))
+        print('')
         
-        sys.exit()
 
 #    res = inference_detector(detector, args.im_dir)
 #    # for dyhead: res[0] --> classification scores, res[1] --> location regression, res[2] --> centerness

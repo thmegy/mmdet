@@ -15,9 +15,8 @@ import tqdm
 import numpy as np
 import json
 import copy
-
-import sys
-
+from uncertainties import unumpy
+import matplotlib.pyplot as plt
 
 
 # modified inference_detector to return output tensor of network
@@ -313,6 +312,9 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     sorted_scores, idxs = max_scores[valid_mask].sort(descending=True)
     topk_idxs = valid_idxs[idxs[:num_topk]].squeeze()
 
+    if topk_idxs.size() == torch.Size([]): # case only 1 idx left, tensor is just a number
+        topk_idxs = topk_idxs.unsqueeze(0)
+
     mlvl_scores = mlvl_scores[topk_idxs]
     mlvl_labels = labels[topk_idxs]
     gt_labels = gt_labels[topk_idxs]
@@ -350,51 +352,211 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     return results
 
 
+
+def predict(detector, img_batch):
+    '''
+    Predict the bboxes and scores for a batch of images.
+    Returns bboxes, scores, predicted labels and groud-truth labels.
+    '''
+    img_batch = detector.data_preprocessor(img_batch, False)
+    with torch.no_grad():
+        results = detector(**img_batch, mode='tensor')
+
+    # from bbox_head.predict function
+    batch_img_metas = [
+        data_samples.metainfo for data_samples in img_batch['data_samples']
+    ]
+
+    # extract GT bboxes
+    targets = mmdet.models.utils.unpack_gt_instances(img_batch['data_samples'])
+
+    # get bboxes and corresponding scores and ground truth, filtered by score and nms
+    predictions = predict_by_feat(detector, targets, *results, batch_img_metas=batch_img_metas, rescale=True)
+
+    return predictions
+
+
+
+def add_empty_class(pred):
+    '''
+    Add a class for "absence of object", whose score is computed as 1 - sum(other classes).
+    '''
+    score_empty = 1-pred.scores.sum(dim=1)
+    scores = torch.column_stack( (pred.scores, score_empty) )
+    pred.scores = scores
+
+    # initial gt label for "empty" class is -1, change to N(classes)
+    pred.gt_labels[pred.gt_labels==-1] = scores.size()[1]-1
+
+    return pred
+
+
+
+def compute_conformity_scores(scores):
+    '''
+    Get conformity score of every class for each bbox.
+    '''
+    sorted_scores, sorted_idxs = scores.sort(descending=True)
+    conformity_score = torch.cumsum(sorted_scores, dim=1)
+
+    return conformity_score, sorted_idxs
+
+
+            
     
 def main(args):
-    device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
     config = Config.fromfile(args.config)
-
-    config.work_dir = 'outputs/conformal_prediction/'
-    config.load_from = args.checkpoint
     
-    runner = Runner.from_cfg(config)
+    if not args.post_process:
+        device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
 
-    # weird results when taking model from runner instead of from inference detector.
-    # only diff is init_cfg option in backbone with path to pretrained model
-    #    detector = runner.model
-    #    detector.cfg = config
+        config.work_dir = 'outputs/conformal_prediction/'
+        config.load_from = args.checkpoint
 
-    calib_loader = runner.val_dataloader
+        runner = Runner.from_cfg(config)
 
-    detector = mmdet.apis.init_detector(
-        args.config,
-        args.checkpoint,
-        device=device,
-    )
+        # weird results when taking model from runner instead of from inference detector.
+        # only diff is init_cfg option in backbone with path to pretrained model
+        #    detector = runner.model
+        #    detector.cfg = config
 
-    for img in calib_loader:
-        img = detector.data_preprocessor(img, False)
-        with torch.no_grad():
-            results = detector(**img, mode='tensor')
+        calib_loader = runner.val_dataloader
 
-        # from bbox_head.predict function
-        batch_img_metas = [
-            data_samples.metainfo for data_samples in img['data_samples']
-        ]
+        detector = mmdet.apis.init_detector(
+            args.config,
+            args.checkpoint,
+            device=device,
+        )
 
-        # extract GT bboxes
-        targets = mmdet.models.utils.unpack_gt_instances(img['data_samples'])
+        # calibration: compute conformity score for true class oach image of the calibration set
+        if args.conformity_thr is None:
+            conformity_score_list = []
+            gt_label_list = []
+            for img_batch in tqdm.tqdm(calib_loader):
+                predictions = predict(detector, img_batch)
+                for pred in predictions:
+                    # add class corresponding to absence of object
+                    pred = add_empty_class(pred)
 
-        # get scores for bboxes filtered by score and nms
-        predictions = predict_by_feat(detector, targets, *results, batch_img_metas=batch_img_metas, rescale=True)
-        print(predictions[0].scores.size())  
-        print(predictions[0].scores.max(dim=1))  
-        print(predictions[0].gt_labels)
-        print(1-predictions[0].scores.sum(dim=1))
-        print('')
+                    conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
+                    box_id, true_class_ranking = torch.where( sorted_idxs==pred.gt_labels.unsqueeze(1) )  # get conformity score of true class for each bbox
+                    conformity_score_list.append( conformity_scores[box_id, true_class_ranking].cpu().detach().numpy() )
+                    gt_label_list.append(pred.gt_labels.cpu().detach().numpy())
+                
+                    
+            true_class_conformity_score = np.concatenate(conformity_score_list)
+
+            # test several significance levels, apply later only the inputed one
+            alpha_list = [0.05, 0.1, 0.15, 0.2]
+            if args.alpha not in alpha_list:
+                alpha_list.append(args.alpha)
+                alpha_list.sort()
+            alpha_list = np.array(alpha_list)
+            select_id = np.where(alpha_list==args.alpha)[0].item()
+            
+            tau_hat = np.quantile(true_class_conformity_score, 1-alpha_list, method='higher')
+            print(f'conformity-score threshold for alpha={args.alpha}: {tau_hat[select_id]:.3f}')
+
+            true_class = np.concatenate(gt_label_list)
+            tau_hat_dict = {'significance':args.alpha, 'overall':tau_hat.tolist()}
+            for icls, cls in enumerate(list(config.classes)+['empty']):
+                tau_hat_cls = np.quantile(true_class_conformity_score[true_class==icls], 1-alpha_list, method='higher')
+                print(f'{cls} {tau_hat_cls[select_id]:.3f}')
+                tau_hat_dict[cls] = tau_hat_cls.tolist()
+                
+            with open('conformity_thresholds_cracks.json', 'w') as f:
+                json.dump(tau_hat_dict, f, indent = 6)
+
+        else:
+            tau_hat = args.conformity_thr
+
+        # test performance of the model with CP
+        test_loader = runner.test_dataloader
+
+        size_list = []
+        target_list = []
+        ranking_list = [] # ranking of true class based on predicted scores
+        argmax_list = []
+        covered_list = []
+        for img_batch in tqdm.tqdm(test_loader):
+            predictions = predict(detector, img_batch)
+            for pred in predictions:
+                # add class corresponding to absence of object
+                pred = add_empty_class(pred)
+
+                conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
+                # construct prediction set of every bbox
+                for cs, idxs, gt_label in zip(conformity_scores, sorted_idxs, pred.gt_labels): #loop over bboxes
+                    prediction_set = idxs[cs<=tau_hat].cpu().detach().numpy()
+
+                    size_list.append(len(prediction_set))
+                    target_list.append(gt_label.item())
+                    ranking_list.append(torch.where(idxs==gt_label)[0].item())
+                    covered_list.append(gt_label.item() in prediction_set)
+
+        results = {
+            'size' : size_list,
+            'target' : target_list,
+            'ranking' : ranking_list,
+            'covered' : covered_list
+            }
+        with open('results_cp_cracks.json', 'w') as f:
+            json.dump(results, f, indent = 6)
+
+            
+    # post-processing
+    with open('results_cp_cracks.json', 'r') as f:
+        results = json.load(f)
+
+    size, target, ranking, covered = np.array(results['size']), np.array(results['target']), np.array(results['ranking']), np.array(results['covered'])
+
+    print(f'{"class" : <60}{"N_sample": ^10}{"coverage": ^10}{"average size": ^15}')
+    for icls, cls in enumerate(list(config.classes)+['empty']):
+        mask = (target == icls)
+        coverage = covered[mask].sum() / len(covered[mask])
+        avg_size = size[mask].mean()
+        print(f'{cls: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}{avg_size: ^15.2f}')
         
+    print('')
+    print(f'{"prediction-set size" : <60}{"N_sample": ^10}{"coverage": ^10}')
+    for isize in range(size.max()):
+        mask = (size == isize+1)
+        coverage = covered[mask].sum() / len(covered[mask])
+        print(f'{isize+1: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}')
 
+
+    print('')
+    print(f'{"true-class ranking" : <60}{"N_sample": ^10}{"average size": ^15}')
+    median = []
+    mean = []
+    uncertainty_mean = [] # statistical uncertainty on the mean size of each ranking
+    for idiff in range(ranking.max()+1):
+        mask = (ranking == idiff)
+
+        median.append(np.median(size[mask]))
+        
+        size_hist = np.array([(size[mask]==isize+1).sum() for isize in range(size[mask].max())])
+        unc_var = unumpy.uarray(size_hist.tolist(), np.sqrt(size_hist).tolist())
+        unc_var_mean = (unc_var * np.arange(1,size[mask].max()+1)).sum() / unc_var.sum()
+        avg_size = unumpy.nominal_values(unc_var_mean)
+        uncert = unumpy.std_devs(unc_var_mean)
+        mean.append(avg_size)
+        uncertainty_mean.append(uncert)
+        
+        print(f'{idiff: <60}{mask.sum(): ^10.2f}{avg_size: ^15.2f}')
+
+
+    fig, ax = plt.subplots()
+    ax.set_xlabel('true-class ranking')
+    ax.set_ylabel('prediction-set size')
+
+    ax.errorbar(range(ranking.max()+1), mean, yerr=uncertainty_mean, linestyle="None", marker='o', color='black', label='mean')
+    ax.plot(range(ranking.max()+1), median, linestyle="None", marker='o', color='red', label='median')
+    
+    ax.legend()
+    fig.set_tight_layout(True)
+    fig.savefig(f'size_vs_ranking.png')
+    
 #    res = inference_detector(detector, args.im_dir)
 #    # for dyhead: res[0] --> classification scores, res[1] --> location regression, res[2] --> centerness
 
@@ -406,6 +568,9 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", required=True, help="mmdetection checkpoint")
     parser.add_argument("--im-dir", help="Directory containing the images")
     parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")
+    parser.add_argument("--alpha", type=float, default=0.1, help="significance level")
+    parser.add_argument("--conformity-thr", type=float, default=None, help="Conformity-score threshold. If argument is used, calibration setp is skipped.")
+    parser.add_argument('--post-process', action='store_true', help='Make summary plots without processing videos again.')
     args = parser.parse_args()
 
     main(args)

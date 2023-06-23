@@ -17,6 +17,8 @@ import json
 import copy
 from uncertainties import unumpy
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+mpl.use('Agg')
 
 
 # modified inference_detector to return output tensor of network
@@ -402,26 +404,79 @@ def compute_conformity_scores(scores):
     return conformity_score, sorted_idxs
 
 
+
+def get_size_vs_difficulty(ranking, size, plot_name_suffix='overall'):
+    print('')
+    print(f'{"true-class ranking" : <60}{"N_sample": ^10}{"average size": ^15}')
+    median = []
+    mean = []
+    uncertainty_mean = [] # statistical uncertainty on the mean size of each ranking
+    for idiff in range(ranking.max()+1):
+        mask = (ranking == idiff)
+
+        median.append(np.median(size[mask]))
+
+        if len(size[mask]) == 0:
+            mean.append(np.nan)
+            uncertainty_mean.append(np.nan)
+        else:
+            size_hist = np.array([(size[mask]==isize+1).sum() for isize in range(size[mask].max())])
+            unc_var = unumpy.uarray(size_hist.tolist(), np.sqrt(size_hist).tolist())
+            unc_var_mean = (unc_var * np.arange(1,size[mask].max()+1)).sum() / unc_var.sum()
+            avg_size = unumpy.nominal_values(unc_var_mean)
+            uncert = unumpy.std_devs(unc_var_mean)
+            mean.append(avg_size)
+            uncertainty_mean.append(uncert)
+        
+            print(f'{idiff: <60}{mask.sum(): ^10.2f}{avg_size: ^15.2f}')
+
+
+    fig, ax = plt.subplots()
+    ax.set_xlabel('true-class ranking')
+    ax.set_ylabel('prediction-set size')
+
+    ax.errorbar(range(ranking.max()+1), mean, yerr=uncertainty_mean, linestyle="None", marker='o', color='black', label='mean')
+    ax.plot(range(ranking.max()+1), median, linestyle="None", marker='o', color='red', label='median')
+    
+    ax.legend()
+    fig.set_tight_layout(True)
+    fig.savefig(f'size_vs_ranking_{plot_name_suffix}.png')
+
+
+
+def get_coverage_vs_size(size, covered):
+    print('')
+    print(f'{"prediction-set size" : <60}{"N_sample": ^10}{"coverage": ^10}')
+    for isize in range(size.max()):
+        mask = (size == isize+1)
+        coverage = covered[mask].sum() / len(covered[mask])
+        print(f'{isize+1: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}')
+
             
     
 def main(args):
     config = Config.fromfile(args.config)
     
     if not args.post_process:
-        device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
-
+        alpha_list = [0.05, 0.1, 0.15, 0.2]
+        if args.alpha not in alpha_list:
+            alpha_list.append(args.alpha)
+            alpha_list.sort()
+        alpha_list = np.array(alpha_list)
+        select_id = np.where(alpha_list==args.alpha)[0].item()
+            
         config.work_dir = 'outputs/conformal_prediction/'
         config.load_from = args.checkpoint
 
         runner = Runner.from_cfg(config)
+        calib_loader = runner.val_dataloader
 
         # weird results when taking model from runner instead of from inference detector.
         # only diff is init_cfg option in backbone with path to pretrained model
         #    detector = runner.model
         #    detector.cfg = config
 
-        calib_loader = runner.val_dataloader
-
+        device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
         detector = mmdet.apis.init_detector(
             args.config,
             args.checkpoint,
@@ -429,7 +484,7 @@ def main(args):
         )
 
         # calibration: compute conformity score for true class oach image of the calibration set
-        if args.conformity_thr is None:
+        if not args.skip_calibration:
             conformity_score_list = []
             gt_label_list = []
             for img_batch in tqdm.tqdm(calib_loader):
@@ -447,28 +502,29 @@ def main(args):
             true_class_conformity_score = np.concatenate(conformity_score_list)
 
             # test several significance levels, apply later only the inputed one
-            alpha_list = [0.05, 0.1, 0.15, 0.2]
-            if args.alpha not in alpha_list:
-                alpha_list.append(args.alpha)
-                alpha_list.sort()
-            alpha_list = np.array(alpha_list)
-            select_id = np.where(alpha_list==args.alpha)[0].item()
-            
             tau_hat = np.quantile(true_class_conformity_score, 1-alpha_list, method='higher')
             print(f'conformity-score threshold for alpha={args.alpha}: {tau_hat[select_id]:.3f}')
 
             true_class = np.concatenate(gt_label_list)
-            tau_hat_dict = {'significance':args.alpha, 'overall':tau_hat.tolist()}
+            tau_hat_dict = {'significance':alpha_list.tolist(), 'overall':tau_hat.tolist(), 'classes':list(config.classes)+['empty']}
+            tau_hat_cls_list = []
             for icls, cls in enumerate(list(config.classes)+['empty']):
                 tau_hat_cls = np.quantile(true_class_conformity_score[true_class==icls], 1-alpha_list, method='higher')
                 print(f'{cls} {tau_hat_cls[select_id]:.3f}')
-                tau_hat_dict[cls] = tau_hat_cls.tolist()
+                tau_hat_cls_list.append(tau_hat_cls.tolist())
+            tau_hat_dict['classes_thr'] = tau_hat_cls_list
                 
             with open('conformity_thresholds_cracks.json', 'w') as f:
                 json.dump(tau_hat_dict, f, indent = 6)
 
         else:
-            tau_hat = args.conformity_thr
+            with open('conformity_thresholds_cracks.json', 'r') as f:
+                tau_hat_dict = json.load(f)
+
+            if args.per_class_thr:
+                tau_hat = torch.tensor(tau_hat_dict['classes_thr'], device=device).T[select_id]
+            else:
+                tau_hat = tau_had_dict['overall'][select_id]
 
         # test performance of the model with CP
         test_loader = runner.test_dataloader
@@ -487,8 +543,14 @@ def main(args):
                 conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
                 # construct prediction set of every bbox
                 for cs, idxs, gt_label in zip(conformity_scores, sorted_idxs, pred.gt_labels): #loop over bboxes
+                    if args.per_class_thr:
+                        tau_hat = tau_hat[idxs]
                     prediction_set = idxs[cs<=tau_hat].cpu().detach().numpy()
 
+                    # do not allow empty sets
+                    if len(prediction_set) == 0:
+                        prediction_set = [idxs[0].cpu().detach().item()]
+                        
                     size_list.append(len(prediction_set))
                     target_list.append(gt_label.item())
                     ranking_list.append(torch.where(idxs==gt_label)[0].item())
@@ -517,46 +579,18 @@ def main(args):
         avg_size = size[mask].mean()
         print(f'{cls: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}{avg_size: ^15.2f}')
         
-    print('')
-    print(f'{"prediction-set size" : <60}{"N_sample": ^10}{"coverage": ^10}')
-    for isize in range(size.max()):
-        mask = (size == isize+1)
-        coverage = covered[mask].sum() / len(covered[mask])
-        print(f'{isize+1: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}')
+    get_coverage_vs_size(size, covered)
+    get_size_vs_difficulty(ranking, size)
 
+    for icls, cls in enumerate(list(config.classes)+['empty']):
+        print('')
+        print('')
+        print(cls)
+        print('')
+        mask = (target == icls)
+        get_coverage_vs_size(size[mask], covered[mask])
+        get_size_vs_difficulty(ranking[mask], size[mask], plot_name_suffix=cls)
 
-    print('')
-    print(f'{"true-class ranking" : <60}{"N_sample": ^10}{"average size": ^15}')
-    median = []
-    mean = []
-    uncertainty_mean = [] # statistical uncertainty on the mean size of each ranking
-    for idiff in range(ranking.max()+1):
-        mask = (ranking == idiff)
-
-        median.append(np.median(size[mask]))
-        
-        size_hist = np.array([(size[mask]==isize+1).sum() for isize in range(size[mask].max())])
-        unc_var = unumpy.uarray(size_hist.tolist(), np.sqrt(size_hist).tolist())
-        unc_var_mean = (unc_var * np.arange(1,size[mask].max()+1)).sum() / unc_var.sum()
-        avg_size = unumpy.nominal_values(unc_var_mean)
-        uncert = unumpy.std_devs(unc_var_mean)
-        mean.append(avg_size)
-        uncertainty_mean.append(uncert)
-        
-        print(f'{idiff: <60}{mask.sum(): ^10.2f}{avg_size: ^15.2f}')
-
-
-    fig, ax = plt.subplots()
-    ax.set_xlabel('true-class ranking')
-    ax.set_ylabel('prediction-set size')
-
-    ax.errorbar(range(ranking.max()+1), mean, yerr=uncertainty_mean, linestyle="None", marker='o', color='black', label='mean')
-    ax.plot(range(ranking.max()+1), median, linestyle="None", marker='o', color='red', label='median')
-    
-    ax.legend()
-    fig.set_tight_layout(True)
-    fig.savefig(f'size_vs_ranking.png')
-    
 #    res = inference_detector(detector, args.im_dir)
 #    # for dyhead: res[0] --> classification scores, res[1] --> location regression, res[2] --> centerness
 
@@ -568,8 +602,11 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", required=True, help="mmdetection checkpoint")
     parser.add_argument("--im-dir", help="Directory containing the images")
     parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")
+    
     parser.add_argument("--alpha", type=float, default=0.1, help="significance level")
-    parser.add_argument("--conformity-thr", type=float, default=None, help="Conformity-score threshold. If argument is used, calibration setp is skipped.")
+    parser.add_argument("--per-class-thr", action='store_true', help="Determine and apply per-class conformity-score thresholds.")
+    
+    parser.add_argument("--skip-calibration", action='store_true', help="Skip calibration and run directly validation.")
     parser.add_argument('--post-process', action='store_true', help='Make summary plots without processing videos again.')
     args = parser.parse_args()
 

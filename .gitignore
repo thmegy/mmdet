@@ -8,3 +8,5 @@ inference/
 configs/*_AL.py
 plots
 scripts/__pycache__/
+*png
+*json

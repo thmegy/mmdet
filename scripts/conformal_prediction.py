@@ -254,6 +254,7 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     mlvl_bbox_preds = []
     mlvl_valid_priors = []
     mlvl_scores = []
+    mlvl_logits = []
     if with_score_factors:
         mlvl_score_factors = []
     else:
@@ -271,6 +272,7 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
                                                 0).reshape(-1).sigmoid()
         cls_score = cls_score.permute(1, 2,
                                       0).reshape(-1, model.bbox_head.cls_out_channels)
+        
         if model.bbox_head.use_sigmoid_cls:
             scores = cls_score.sigmoid()
         else:
@@ -282,6 +284,7 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
         mlvl_bbox_preds.append(bbox_pred)
         mlvl_valid_priors.append(priors)
         mlvl_scores.append(scores)
+        mlvl_logits.append(cls_score)
 
         if with_score_factors:
             mlvl_score_factors.append(score_factor)
@@ -297,6 +300,7 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     num_level_priors = [len(s) for s in mlvl_scores]
     mlvl_scores = torch.cat(mlvl_scores)
     mlvl_score_factors = torch.cat(mlvl_score_factors)
+    mlvl_logits = torch.cat(mlvl_logits)
     
     # assign a ground truth label to each predicted bbox
     assign_result = model.bbox_head.assigner.assign(InstanceData(priors=bboxes), num_level_priors,
@@ -318,6 +322,7 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
         topk_idxs = topk_idxs.unsqueeze(0)
 
     mlvl_scores = mlvl_scores[topk_idxs]
+    mlvl_logits = mlvl_logits[topk_idxs]
     mlvl_labels = labels[topk_idxs]
     gt_labels = gt_labels[topk_idxs]
     mlvl_score_factors = mlvl_score_factors[topk_idxs]
@@ -326,6 +331,7 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     results = InstanceData()
     results.bboxes = bboxes
     results.scores = mlvl_scores
+    results.logits = mlvl_logits
     results.labels = mlvl_labels
     results.gt_labels = gt_labels
 
@@ -350,7 +356,9 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
         #results.scores = det_bboxes[:, -1]
         results = results[:cfg.max_per_img]
 
-    
+    # add class corresponding to absence of object
+    results = add_empty_class(results)
+
     return results
 
 
@@ -379,13 +387,52 @@ def predict(detector, img_batch):
 
 
 
+def platt_scaling(predictions, max_iters=10, lr=0.01, epsilon=0.01):
+    '''
+    Original function from https://github.com/aangelopoulos/conformal_classification
+    '''
+    nll_criterion = torch.nn.CrossEntropyLoss().cuda()
+
+    n_classes = predictions[0].scores.shape[1]
+    Temp = torch.nn.Parameter(torch.ones(n_classes).cuda()*1.3) # use 1.3 as initial value
+
+    optimizer = torch.optim.SGD([Temp], lr=lr)
+    for iter in range(max_iters):
+        Temp_old = Temp
+        for pred in predictions:
+            x, target = pred.logits, pred.gt_labels # convert scores to logits
+            optimizer.zero_grad()
+            x.requires_grad = True
+            out = x/Temp
+            loss = nll_criterion(out, target.long())
+            loss.backward()
+            optimizer.step()
+        if torch.abs(Temp_old - Temp).max() < epsilon:
+            break
+    
+    return Temp 
+
+
+
+def apply_platt_scaling(predictions, Temp_hat):
+    for ip, pred in enumerate(predictions):
+        scores = torch.sigmoid( pred.logits / Temp_hat )
+        predictions[ip].scores = scores
+    return predictions
+
+
+
 def add_empty_class(pred):
     '''
     Add a class for "absence of object", whose score is computed as 1 - sum(other classes).
     '''
-    score_empty = 1-pred.scores.sum(dim=1)
-    scores = torch.column_stack( (pred.scores, score_empty) )
+    scores_empty = 1-pred.scores.sum(dim=1)
+    scores_empty[scores_empty < 0] = 0.01
+    scores = torch.column_stack( (pred.scores, scores_empty) )
     pred.scores = scores
+
+    logits = torch.column_stack( (pred.logits, torch.special.logit(scores_empty)) )
+    pred.logits = logits
 
     # initial gt label for "empty" class is -1, change to N(classes)
     pred.gt_labels[pred.gt_labels==-1] = scores.size()[1]-1
@@ -485,19 +532,24 @@ def main(args):
 
         # calibration: compute conformity score for true class oach image of the calibration set
         if not args.skip_calibration:
+            predictions = []
+            for img_batch in tqdm.tqdm(calib_loader):
+                predictions += predict(detector, img_batch)
+
+            # Platt scaling
+            Temp_hat = platt_scaling(predictions)
+            print(f'Optimal Temperature scaling: {Temp_hat.tolist()}')
+
+            predictions = apply_platt_scaling(predictions, Temp_hat)
+            
+            # CP calibration
             conformity_score_list = []
             gt_label_list = []
-            for img_batch in tqdm.tqdm(calib_loader):
-                predictions = predict(detector, img_batch)
-                for pred in predictions:
-                    # add class corresponding to absence of object
-                    pred = add_empty_class(pred)
-
-                    conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
-                    box_id, true_class_ranking = torch.where( sorted_idxs==pred.gt_labels.unsqueeze(1) )  # get conformity score of true class for each bbox
-                    conformity_score_list.append( conformity_scores[box_id, true_class_ranking].cpu().detach().numpy() )
-                    gt_label_list.append(pred.gt_labels.cpu().detach().numpy())
-                
+            for pred in predictions:
+                conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
+                box_id, true_class_ranking = torch.where( sorted_idxs==pred.gt_labels.unsqueeze(1) )  # get conformity score of true class for each bbox
+                conformity_score_list.append( conformity_scores[box_id, true_class_ranking].cpu().detach().numpy() )
+                gt_label_list.append(pred.gt_labels.cpu().detach().numpy())
                     
             true_class_conformity_score = np.concatenate(conformity_score_list)
 
@@ -506,7 +558,7 @@ def main(args):
             print(f'conformity-score threshold for alpha={args.alpha}: {tau_hat[select_id]:.3f}')
 
             true_class = np.concatenate(gt_label_list)
-            tau_hat_dict = {'significance':alpha_list.tolist(), 'overall':tau_hat.tolist(), 'classes':list(config.classes)+['empty']}
+            tau_hat_dict = { 'classes':list(config.classes)+['empty'], 'temperature_scaling':Temp_hat.cpu().detach().tolist(), 'significance':alpha_list.tolist(), 'overall':tau_hat.tolist()}
             tau_hat_cls_list = []
             for icls, cls in enumerate(list(config.classes)+['empty']):
                 tau_hat_cls = np.quantile(true_class_conformity_score[true_class==icls], 1-alpha_list, method='higher')
@@ -520,12 +572,16 @@ def main(args):
         else:
             with open('conformity_thresholds_cracks.json', 'r') as f:
                 tau_hat_dict = json.load(f)
+            Temp_hat = torch.tensor(tau_hat_dict['temperature_scaling'])
+                
+        if args.per_class_thr:
+            tau_hat = torch.tensor(tau_hat_dict['classes_thr'], device=device).T[select_id]
+        else:
+            tau_hat = tau_had_dict['overall'][select_id]
 
-            if args.per_class_thr:
-                tau_hat = torch.tensor(tau_hat_dict['classes_thr'], device=device).T[select_id]
-            else:
-                tau_hat = tau_had_dict['overall'][select_id]
 
+
+                
         # test performance of the model with CP
         test_loader = runner.test_dataloader
 
@@ -536,10 +592,8 @@ def main(args):
         covered_list = []
         for img_batch in tqdm.tqdm(test_loader):
             predictions = predict(detector, img_batch)
+            predictions = apply_platt_scaling(predictions, Temp_hat)
             for pred in predictions:
-                # add class corresponding to absence of object
-                pred = add_empty_class(pred)
-
                 conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
                 # construct prediction set of every bbox
                 for cs, idxs, gt_label in zip(conformity_scores, sorted_idxs, pred.gt_labels): #loop over bboxes

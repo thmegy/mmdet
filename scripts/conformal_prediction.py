@@ -453,52 +453,48 @@ def compute_conformity_scores(scores):
 
 
 def get_size_vs_difficulty(ranking, size, plot_name_suffix='overall'):
-    print('')
-    print(f'{"true-class ranking" : <60}{"N_sample": ^10}{"average size": ^15}')
-    median = []
-    mean = []
-    uncertainty_mean = [] # statistical uncertainty on the mean size of each ranking
-    for idiff in range(ranking.max()+1):
-        mask = (ranking == idiff)
+    size_matrix = np.histogram2d(size, ranking, bins=[np.arange(14)+0.5, np.arange(14)-0.5])[0]
 
-        median.append(np.median(size[mask]))
-
-        if len(size[mask]) == 0:
-            mean.append(np.nan)
-            uncertainty_mean.append(np.nan)
-        else:
-            size_hist = np.array([(size[mask]==isize+1).sum() for isize in range(size[mask].max())])
-            unc_var = unumpy.uarray(size_hist.tolist(), np.sqrt(size_hist).tolist())
-            unc_var_mean = (unc_var * np.arange(1,size[mask].max()+1)).sum() / unc_var.sum()
-            avg_size = unumpy.nominal_values(unc_var_mean)
-            uncert = unumpy.std_devs(unc_var_mean)
-            mean.append(avg_size)
-            uncertainty_mean.append(uncert)
-        
-            print(f'{idiff: <60}{mask.sum(): ^10.2f}{avg_size: ^15.2f}')
-
-
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(12, 8))
     ax.set_xlabel('true-class ranking')
     ax.set_ylabel('prediction-set size')
 
-    ax.errorbar(range(ranking.max()+1), mean, yerr=uncertainty_mean, linestyle="None", marker='o', color='black', label='mean')
-    ax.plot(range(ranking.max()+1), median, linestyle="None", marker='o', color='red', label='median')
-    
+    ticks = np.linspace(1, 13, 13).astype(int)
+    c = ax.pcolor(size_matrix / size_matrix.sum(axis=0), cmap='Greens')
+    for irow in range(size_matrix.shape[0]):
+        for icol in range(size_matrix.shape[1]):
+            ax.text(icol+0.5, irow+0.5, f'{int(size_matrix[irow][icol])}',
+                       ha="center", va="center", color="black")
+            
+    ax.plot(ticks-0.5, ticks @ size_matrix / size_matrix.sum(axis=0), linestyle="None", marker='o', color='darkblue', label='mean', alpha=0.7)
+    ax.plot(ticks-0.5, [ np.median(size[ranking == idiff]) for idiff in range(13) ], linestyle="None", marker='o', color='red', label='median', alpha=0.7)
+
+    ax.set_xticks(ticks-0.5)
+    ax.set_xticklabels(ticks-1, fontsize=10)
+    ax.set_yticks(ticks-0.5)
+    ax.set_yticklabels(ticks, fontsize=10)
+        
     ax.legend()
+    cbar = fig.colorbar(c)
+    cbar.set_label('p.d.f')
     fig.set_tight_layout(True)
     fig.savefig(f'size_vs_ranking_{plot_name_suffix}.png')
 
 
 
+
 def get_coverage_vs_size(size, covered):
-    print('')
-    print(f'{"prediction-set size" : <60}{"N_sample": ^10}{"coverage": ^10}')
+    size_list = []
+    coverage_list = []
     for isize in range(size.max()):
         mask = (size == isize+1)
         coverage = covered[mask].sum() / len(covered[mask])
-        print(f'{isize+1: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}')
 
+        size_list.append(isize+1)
+        coverage_list.append(coverage)
+
+    return size_list, coverage_list
+        
             
     
 def main(args):
@@ -625,26 +621,46 @@ def main(args):
         results = json.load(f)
 
     size, target, ranking, covered = np.array(results['size']), np.array(results['target']), np.array(results['ranking']), np.array(results['covered'])
-
+    classes = list(config.classes)+['empty']
+    
     print(f'{"class" : <60}{"N_sample": ^10}{"coverage": ^10}{"average size": ^15}')
-    for icls, cls in enumerate(list(config.classes)+['empty']):
+    for icls, cls in enumerate(classes):
         mask = (target == icls)
         coverage = covered[mask].sum() / len(covered[mask])
         avg_size = size[mask].mean()
         print(f'{cls: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}{avg_size: ^15.2f}')
         
-    get_coverage_vs_size(size, covered)
+    size_list, coverage_list = get_coverage_vs_size(size, covered)
     get_size_vs_difficulty(ranking, size)
 
-    for icls, cls in enumerate(list(config.classes)+['empty']):
+    fig, ax = plt.subplots(figsize=(12,8))
+    ax.set_ylabel('coverage')
+    ax.set_xlabel('prediction-set size')
+    ax.plot([0.4, max(size_list)+0.5], [1-args.alpha, 1-args.alpha], color='red', linestyle='--', linewidth=1)
+
+    markerstyle = ["p", "p", "p", "p", "p", "p", "p", "s", "p", "s", "s", "s", "*"]
+    
+    for icls, cls in enumerate(classes):
         print('')
         print('')
         print(cls)
         print('')
         mask = (target == icls)
-        get_coverage_vs_size(size[mask], covered[mask])
+
+        size_list, coverage_list = get_coverage_vs_size(size[mask], covered[mask])
+        ax.plot(np.array(size_list)-0.45+icls*0.069, coverage_list, linestyle="None", marker=markerstyle[icls], label=cls)
+        ax.plot([icls+1.5, icls+1.5], [-0.03, 1.03], color='black', linestyle='--', linewidth=1)
+
+
         get_size_vs_difficulty(ranking[mask], size[mask], plot_name_suffix=cls)
 
+
+    ax.legend(ncol=3, fontsize='small', framealpha=1)
+    ax.set_xlim(0.5, max(size_list)+0.5)
+    ax.set_ylim(-0.03, 1.03)
+    fig.set_tight_layout(True)
+    fig.savefig(f'coverage_vs_size.png')
+        
 #    res = inference_detector(detector, args.im_dir)
 #    # for dyhead: res[0] --> classification scores, res[1] --> location regression, res[2] --> centerness
 

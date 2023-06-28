@@ -452,7 +452,7 @@ def compute_conformity_scores(scores):
 
 
 
-def get_size_vs_difficulty(ranking, size, plot_name_suffix='overall'):
+def get_size_vs_difficulty(ranking, size, outpath, plot_name_suffix='overall'):
     size_matrix = np.histogram2d(size, ranking, bins=[np.arange(14)+0.5, np.arange(14)-0.5])[0]
 
     fig, ax = plt.subplots(figsize=(12, 8))
@@ -465,8 +465,9 @@ def get_size_vs_difficulty(ranking, size, plot_name_suffix='overall'):
         for icol in range(size_matrix.shape[1]):
             ax.text(icol+0.5, irow+0.5, f'{int(size_matrix[irow][icol])}',
                        ha="center", va="center", color="black")
-            
-    ax.plot(ticks-0.5, ticks @ size_matrix / size_matrix.sum(axis=0), linestyle="None", marker='o', color='darkblue', label='mean', alpha=0.7)
+
+    mean = ticks @ size_matrix / size_matrix.sum(axis=0)
+    ax.plot(ticks-0.5, mean, linestyle="None", marker='o', color='darkblue', label='mean', alpha=0.7)
     ax.plot(ticks-0.5, [ np.median(size[ranking == idiff]) for idiff in range(13) ], linestyle="None", marker='o', color='red', label='median', alpha=0.7)
 
     ax.set_xticks(ticks-0.5)
@@ -478,22 +479,48 @@ def get_size_vs_difficulty(ranking, size, plot_name_suffix='overall'):
     cbar = fig.colorbar(c)
     cbar.set_label('p.d.f')
     fig.set_tight_layout(True)
-    fig.savefig(f'size_vs_ranking_{plot_name_suffix}.png')
+    fig.savefig(f'{outpath}/size_vs_ranking_{plot_name_suffix}.png')
 
+    return mean
+
+
+
+def plot_coverage_per_class(covered, target, classes, alpha, outpath):
+    fig, ax = plt.subplots()
+    ax.set_ylabel('coverage')
+
+    coverage_list = []
+    coverage_list.append(covered.sum() / len(covered)) # overall coverage
+    
+    for icls, cls in enumerate(classes):
+        mask = (target == icls)
+        coverage = covered[mask].sum() / len(covered[mask])
+        coverage_list.append(coverage)
+
+    plt.bar(range(len(coverage_list)), coverage_list)
+    ax.plot([-1, len(coverage_list)], [1-alpha, 1-alpha], color='red', linestyle='--', linewidth=1)
+
+    ax.set_xticks( range(len(coverage_list)) )
+    ax.set_xticklabels(['overall']+[c[:12] for c in classes], fontsize=10, rotation=45, ha='right')
+
+    fig.set_tight_layout(True)
+    fig.savefig(f'{outpath}/coverage_per_class.png')
 
 
 
 def get_coverage_vs_size(size, covered):
     size_list = []
     coverage_list = []
+    n_sample = [] # number of samples per category
     for isize in range(size.max()):
         mask = (size == isize+1)
         coverage = covered[mask].sum() / len(covered[mask])
+        n_sample.append(mask.sum())
 
         size_list.append(isize+1)
         coverage_list.append(coverage)
 
-    return size_list, coverage_list
+    return np.array(size_list), np.array(coverage_list), np.array(n_sample)
         
             
     
@@ -562,18 +589,18 @@ def main(args):
                 tau_hat_cls_list.append(tau_hat_cls.tolist())
             tau_hat_dict['classes_thr'] = tau_hat_cls_list
                 
-            with open('conformity_thresholds_cracks.json', 'w') as f:
+            with open(f'{args.outpath}/conformity_thresholds_cracks.json', 'w') as f:
                 json.dump(tau_hat_dict, f, indent = 6)
 
         else:
-            with open('conformity_thresholds_cracks.json', 'r') as f:
+            with open(f'{args.outpath}/conformity_thresholds_cracks.json', 'r') as f:
                 tau_hat_dict = json.load(f)
-            Temp_hat = torch.tensor(tau_hat_dict['temperature_scaling'])
+            Temp_hat = torch.tensor(tau_hat_dict['temperature_scaling'], device=device)
                 
         if args.per_class_thr:
             tau_hat = torch.tensor(tau_hat_dict['classes_thr'], device=device).T[select_id]
         else:
-            tau_hat = tau_had_dict['overall'][select_id]
+            tau_hat = torch.tensor(tau_hat_dict['overall'][select_id], device=device)
 
 
 
@@ -612,55 +639,70 @@ def main(args):
             'ranking' : ranking_list,
             'covered' : covered_list
             }
-        with open('results_cp_cracks.json', 'w') as f:
+        with open(f'{args.outpath}/results_cp_cracks.json', 'w') as f:
             json.dump(results, f, indent = 6)
 
             
+            
     # post-processing
-    with open('results_cp_cracks.json', 'r') as f:
+    with open(f'{args.outpath}/results_cp_cracks.json', 'r') as f:
         results = json.load(f)
 
     size, target, ranking, covered = np.array(results['size']), np.array(results['target']), np.array(results['ranking']), np.array(results['covered'])
     classes = list(config.classes)+['empty']
+
+    plot_coverage_per_class(covered, target, classes, args.alpha, args.outpath)
     
-    print(f'{"class" : <60}{"N_sample": ^10}{"coverage": ^10}{"average size": ^15}')
+
+    # compute and plot size vs ranking of true class for each class
+    mean_array_overall = get_size_vs_difficulty(ranking, size, args.outpath)
+
+    mean_array_list = []
     for icls, cls in enumerate(classes):
         mask = (target == icls)
-        coverage = covered[mask].sum() / len(covered[mask])
-        avg_size = size[mask].mean()
-        print(f'{cls: <60}{mask.sum(): ^10.2f}{coverage: ^10.2f}{avg_size: ^15.2f}')
-        
-    size_list, coverage_list = get_coverage_vs_size(size, covered)
-    get_size_vs_difficulty(ranking, size)
+        mean_array = get_size_vs_difficulty(ranking[mask], size[mask], args.outpath, plot_name_suffix=cls)
+        mean_array_list.append(mean_array)
 
+    # plot average of classes of size vs ranking of true class
+    fig_svr, ax_svr = plt.subplots()
+    ax_svr.set_ylabel('prediction-set size')
+    ax_svr.set_xlabel('true-class ranking')
+
+    ax_svr.plot( range(len(classes)), mean_array_overall, linestyle="None", marker='p', color='black', label=f'overall', alpha=0.7)
+    ax_svr.plot( range(len(classes)), np.stack(mean_array_list).mean(axis=0), linestyle="None", marker='p', color='darkblue', label=f'average w/ "empty"', alpha=0.7)
+    ax_svr.plot( range(len(classes)), np.stack(mean_array_list)[:-1].mean(axis=0), linestyle="None", marker='p', color='red', label=f'average w/o "empty"', alpha=0.7)
+
+    ax_svr.legend()
+    fig_svr.set_tight_layout(True)
+    fig_svr.savefig(f'{args.outpath}/average_size_vs_ranking.png')
+
+    
+    # compute and plot coverage vs size
     fig, ax = plt.subplots(figsize=(12,8))
     ax.set_ylabel('coverage')
     ax.set_xlabel('prediction-set size')
+
+    # overall coverage
+    size_list, coverage_list, n_sample = get_coverage_vs_size(size, covered)
+    ax.scatter(size_list-0.45, coverage_list, 500*n_sample/n_sample.sum(), color='black', marker='o', label=f'Overall ({n_sample.sum()})')
     ax.plot([0.4, max(size_list)+0.5], [1-args.alpha, 1-args.alpha], color='red', linestyle='--', linewidth=1)
 
+    # coverage per class
     markerstyle = ["p", "p", "p", "p", "p", "p", "p", "s", "p", "s", "s", "s", "*"]
-    
     for icls, cls in enumerate(classes):
-        print('')
-        print('')
-        print(cls)
-        print('')
         mask = (target == icls)
 
-        size_list, coverage_list = get_coverage_vs_size(size[mask], covered[mask])
-        ax.plot(np.array(size_list)-0.45+icls*0.069, coverage_list, linestyle="None", marker=markerstyle[icls], label=cls)
+        size_list, coverage_list, n_sample = get_coverage_vs_size(size[mask], covered[mask])
+        ax.scatter(size_list-0.45+(icls+1)*0.064, coverage_list, 500*n_sample/n_sample.sum(), linestyle="None", marker=markerstyle[icls], label=f'{cls} ({n_sample.sum()})')
         ax.plot([icls+1.5, icls+1.5], [-0.03, 1.03], color='black', linestyle='--', linewidth=1)
-
-
-        get_size_vs_difficulty(ranking[mask], size[mask], plot_name_suffix=cls)
-
 
     ax.legend(ncol=3, fontsize='small', framealpha=1)
     ax.set_xlim(0.5, max(size_list)+0.5)
     ax.set_ylim(-0.03, 1.03)
     fig.set_tight_layout(True)
-    fig.savefig(f'coverage_vs_size.png')
-        
+    fig.savefig(f'{args.outpath}/coverage_vs_size.png')
+
+    
 #    res = inference_detector(detector, args.im_dir)
 #    # for dyhead: res[0] --> classification scores, res[1] --> location regression, res[2] --> centerness
 
@@ -671,6 +713,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", required=True, help="mmdetection config")
     parser.add_argument("--checkpoint", required=True, help="mmdetection checkpoint")
     parser.add_argument("--im-dir", help="Directory containing the images")
+    parser.add_argument("--outpath", required=True, help="Path to output directory")
     parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")
     
     parser.add_argument("--alpha", type=float, default=0.1, help="significance level")
@@ -680,4 +723,6 @@ if __name__ == "__main__":
     parser.add_argument('--post-process', action='store_true', help='Make summary plots without processing videos again.')
     args = parser.parse_args()
 
+    os.makedirs(args.outpath, exist_ok=True)
+    
     main(args)

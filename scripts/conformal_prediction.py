@@ -453,36 +453,64 @@ def compute_conformity_scores(scores):
 
 
 
-def get_size_vs_difficulty(ranking, size, outpath, plot_name_suffix='overall'):
-    size_matrix = np.histogram2d(size, ranking, bins=[np.arange(14)+0.5, np.arange(14)-0.5])[0]
+def plot_size_vs_difficulty(ranking, size, target, classes, outpath):
+    '''
+    Compute and plot size vs ranking of true class for each class + mean over all classes
+    '''
+    def get_size_vs_difficulty(ranking, size, outpath, plot_name_suffix='overall'):
+        size_matrix = np.histogram2d(size, ranking, bins=[np.arange(14)+0.5, np.arange(14)-0.5])[0]
 
-    fig, ax = plt.subplots(figsize=(12, 8))
-    ax.set_xlabel('true-class ranking')
-    ax.set_ylabel('prediction-set size')
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.set_xlabel('true-class ranking')
+        ax.set_ylabel('prediction-set size')
 
-    ticks = np.linspace(1, 13, 13).astype(int)
-    c = ax.pcolor(size_matrix / size_matrix.sum(axis=0), cmap='Greens')
-    for irow in range(size_matrix.shape[0]):
-        for icol in range(size_matrix.shape[1]):
-            ax.text(icol+0.5, irow+0.5, f'{int(size_matrix[irow][icol])}',
-                       ha="center", va="center", color="black")
+        ticks = np.linspace(1, 13, 13).astype(int)
+        c = ax.pcolor(size_matrix / size_matrix.sum(axis=0), cmap='Greens')
+        for irow in range(size_matrix.shape[0]):
+            for icol in range(size_matrix.shape[1]):
+                ax.text(icol+0.5, irow+0.5, f'{int(size_matrix[irow][icol])}',
+                           ha="center", va="center", color="black")
 
-    mean = ticks @ size_matrix / size_matrix.sum(axis=0)
-    ax.plot(ticks-0.5, mean, linestyle="None", marker='o', color='darkblue', label='mean', alpha=0.7)
-    ax.plot(ticks-0.5, [ np.median(size[ranking == idiff]) for idiff in range(13) ], linestyle="None", marker='o', color='red', label='median', alpha=0.7)
+        mean = ticks @ size_matrix / size_matrix.sum(axis=0)
+        ax.plot(ticks-0.5, mean, linestyle="None", marker='o', color='darkblue', label='mean', alpha=0.7)
+        ax.plot(ticks-0.5, [ np.median(size[ranking == idiff]) for idiff in range(13) ], linestyle="None", marker='o', color='red', label='median', alpha=0.7)
 
-    ax.set_xticks(ticks-0.5)
-    ax.set_xticklabels(ticks-1, fontsize=10)
-    ax.set_yticks(ticks-0.5)
-    ax.set_yticklabels(ticks, fontsize=10)
-        
-    ax.legend()
-    cbar = fig.colorbar(c)
-    cbar.set_label('p.d.f')
-    fig.set_tight_layout(True)
-    fig.savefig(f'{outpath}/size_vs_ranking_{plot_name_suffix}.png')
+        ax.set_xticks(ticks-0.5)
+        ax.set_xticklabels(ticks-1, fontsize=10)
+        ax.set_yticks(ticks-0.5)
+        ax.set_yticklabels(ticks, fontsize=10)
 
-    return mean
+        ax.legend()
+        cbar = fig.colorbar(c)
+        cbar.set_label('p.d.f')
+        fig.set_tight_layout(True)
+        fig.savefig(f'{outpath}/size_vs_ranking_{plot_name_suffix}.png')
+
+        return mean
+
+    mean_array_overall = get_size_vs_difficulty(ranking, size, outpath)
+
+    mean_array_list = []
+    for icls, cls in enumerate(classes):
+        mask = (target == icls)
+        mean_array = get_size_vs_difficulty(ranking[mask], size[mask], outpath, plot_name_suffix=cls)
+        mean_array_list.append(mean_array)
+
+    # plot average of classes of size vs ranking of true class
+    fig_svr, ax_svr = plt.subplots()
+    ax_svr.set_ylabel('prediction-set size')
+    ax_svr.set_xlabel('true-class ranking')
+
+    ax_svr.plot( range(len(classes)), mean_array_overall, linestyle="None", marker='p', color='black', label=f'overall', alpha=0.7)
+    ax_svr.plot( range(len(classes)), np.stack(mean_array_list).mean(axis=0), linestyle="None", marker='p', color='darkblue', label=f'average w/ "empty"', alpha=0.7)
+    ax_svr.plot( range(len(classes)), np.stack(mean_array_list)[:-1].mean(axis=0), linestyle="None", marker='p', color='red', label=f'average w/o "empty"', alpha=0.7)
+
+    ax_svr.legend()
+    fig_svr.set_tight_layout(True)
+    fig_svr.savefig(f'{outpath}/average_size_vs_ranking.png')
+
+
+
 
 
 
@@ -654,28 +682,8 @@ def main(args):
 
     plot_coverage_per_class(covered, target, classes, args.alpha, args.outpath)
     
-
     # compute and plot size vs ranking of true class for each class
-    mean_array_overall = get_size_vs_difficulty(ranking, size, args.outpath)
-
-    mean_array_list = []
-    for icls, cls in enumerate(classes):
-        mask = (target == icls)
-        mean_array = get_size_vs_difficulty(ranking[mask], size[mask], args.outpath, plot_name_suffix=cls)
-        mean_array_list.append(mean_array)
-
-    # plot average of classes of size vs ranking of true class
-    fig_svr, ax_svr = plt.subplots()
-    ax_svr.set_ylabel('prediction-set size')
-    ax_svr.set_xlabel('true-class ranking')
-
-    ax_svr.plot( range(len(classes)), mean_array_overall, linestyle="None", marker='p', color='black', label=f'overall', alpha=0.7)
-    ax_svr.plot( range(len(classes)), np.stack(mean_array_list).mean(axis=0), linestyle="None", marker='p', color='darkblue', label=f'average w/ "empty"', alpha=0.7)
-    ax_svr.plot( range(len(classes)), np.stack(mean_array_list)[:-1].mean(axis=0), linestyle="None", marker='p', color='red', label=f'average w/o "empty"', alpha=0.7)
-
-    ax_svr.legend()
-    fig_svr.set_tight_layout(True)
-    fig_svr.savefig(f'{args.outpath}/average_size_vs_ranking.png')
+    plot_size_vs_difficulty(ranking, size, target, classes, args.outpath)
 
     
     # compute and plot coverage vs size

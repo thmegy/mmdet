@@ -511,9 +511,6 @@ def plot_size_vs_difficulty(ranking, size, target, classes, outpath):
 
 
 
-
-
-
 def plot_coverage_per_class(covered, target, classes, alpha, outpath):
     fig, ax = plt.subplots()
     ax.set_ylabel('coverage')
@@ -537,19 +534,45 @@ def plot_coverage_per_class(covered, target, classes, alpha, outpath):
 
 
 
-def get_coverage_vs_size(size, covered):
-    size_list = []
-    coverage_list = []
-    n_sample = [] # number of samples per category
-    for isize in range(size.max()):
-        mask = (size == isize+1)
-        coverage = covered[mask].sum() / len(covered[mask])
-        n_sample.append(mask.sum())
+def plot_coverage_vs_size(size, covered, target, classes, alpha, outpath):
+    def get_coverage_vs_size(size, covered):
+        size_list = []
+        coverage_list = []
+        n_sample = [] # number of samples per category
+        for isize in range(size.max()):
+            mask = (size == isize+1)
+            coverage = covered[mask].sum() / len(covered[mask])
+            n_sample.append(mask.sum())
 
-        size_list.append(isize+1)
-        coverage_list.append(coverage)
+            size_list.append(isize+1)
+            coverage_list.append(coverage)
 
-    return np.array(size_list), np.array(coverage_list), np.array(n_sample)
+        return np.array(size_list), np.array(coverage_list), np.array(n_sample)
+    
+    # compute and plot coverage vs size
+    fig, ax = plt.subplots(figsize=(12,8))
+    ax.set_ylabel('coverage')
+    ax.set_xlabel('prediction-set size')
+
+    # overall coverage
+    size_list, coverage_list, n_sample = get_coverage_vs_size(size, covered)
+    ax.scatter(size_list-0.45, coverage_list, 500*n_sample/n_sample.sum(), color='black', marker='o', label=f'Overall ({n_sample.sum()})')
+    ax.plot([0.4, max(size_list)+0.5], [1-alpha, 1-alpha], color='red', linestyle='--', linewidth=1)
+
+    # coverage per class
+    markerstyle = ["p", "p", "p", "p", "p", "p", "p", "s", "p", "s", "s", "s", "*"]
+    for icls, cls in enumerate(classes):
+        mask = (target == icls)
+
+        size_list, coverage_list, n_sample = get_coverage_vs_size(size[mask], covered[mask])
+        ax.scatter(size_list-0.45+(icls+1)*0.064, coverage_list, 500*n_sample/n_sample.sum(), linestyle="None", marker=markerstyle[icls], label=f'{cls} ({n_sample.sum()})')
+        ax.plot([icls+1.5, icls+1.5], [-0.03, 1.03], color='black', linestyle='--', linewidth=1)
+
+    ax.legend(ncol=3, fontsize='small', framealpha=1)
+    ax.set_xlim(0.5, max(size_list)+0.5)
+    ax.set_ylim(-0.03, 1.03)
+    fig.set_tight_layout(True)
+    fig.savefig(f'{outpath}/coverage_vs_size.png')
         
             
     
@@ -685,32 +708,8 @@ def main(args):
     # compute and plot size vs ranking of true class for each class
     plot_size_vs_difficulty(ranking, size, target, classes, args.outpath)
 
-    
     # compute and plot coverage vs size
-    fig, ax = plt.subplots(figsize=(12,8))
-    ax.set_ylabel('coverage')
-    ax.set_xlabel('prediction-set size')
-
-    # overall coverage
-    size_list, coverage_list, n_sample = get_coverage_vs_size(size, covered)
-    ax.scatter(size_list-0.45, coverage_list, 500*n_sample/n_sample.sum(), color='black', marker='o', label=f'Overall ({n_sample.sum()})')
-    ax.plot([0.4, max(size_list)+0.5], [1-args.alpha, 1-args.alpha], color='red', linestyle='--', linewidth=1)
-
-    # coverage per class
-    markerstyle = ["p", "p", "p", "p", "p", "p", "p", "s", "p", "s", "s", "s", "*"]
-    for icls, cls in enumerate(classes):
-        mask = (target == icls)
-
-        size_list, coverage_list, n_sample = get_coverage_vs_size(size[mask], covered[mask])
-        ax.scatter(size_list-0.45+(icls+1)*0.064, coverage_list, 500*n_sample/n_sample.sum(), linestyle="None", marker=markerstyle[icls], label=f'{cls} ({n_sample.sum()})')
-        ax.plot([icls+1.5, icls+1.5], [-0.03, 1.03], color='black', linestyle='--', linewidth=1)
-
-    ax.legend(ncol=3, fontsize='small', framealpha=1)
-    ax.set_xlim(0.5, max(size_list)+0.5)
-    ax.set_ylim(-0.03, 1.03)
-    fig.set_tight_layout(True)
-    fig.savefig(f'{args.outpath}/coverage_vs_size.png')
-
+    plot_coverage_vs_size(size, covered, target, classes, args.alpha, args.outpath)
     
 #    res = inference_detector(detector, args.im_dir)
 #    # for dyhead: res[0] --> classification scores, res[1] --> location regression, res[2] --> centerness

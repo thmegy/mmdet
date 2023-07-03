@@ -417,6 +417,7 @@ def platt_scaling(predictions, max_iters=10, lr=0.01, epsilon=0.01):
 def apply_platt_scaling(predictions, Temp_hat):
     for ip, pred in enumerate(predictions):
         scores = torch.sigmoid( pred.logits / Temp_hat )
+#        scores = torch.softmax( pred.logits / Temp_hat, dim=1 )
         predictions[ip].scores = scores
     return predictions
 

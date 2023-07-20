@@ -621,14 +621,25 @@ def main(args):
             # CP calibration
             conformity_score_list = []
             gt_label_list = []
+            scores_list = []
+            logits_list = []
             for pred in predictions:
+                scores_list.append(pred.scores.cpu().detach().numpy())
+                logits_list.append(pred.logits.cpu().detach().numpy())
                 conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
                 box_id, true_class_ranking = torch.where( sorted_idxs==pred.gt_labels.unsqueeze(1) )  # get conformity score of true class for each bbox
                 conformity_score_list.append( conformity_scores[box_id, true_class_ranking].cpu().detach().numpy() )
                 gt_label_list.append(pred.gt_labels.cpu().detach().numpy())
                     
             true_class_conformity_score = np.concatenate(conformity_score_list)
+            true_class = np.concatenate(gt_label_list)
 
+            scores_full = np.concatenate(scores_list, axis=0)
+            logits_full = np.concatenate(logits_list, axis=0)
+            np.save(f'{args.outpath}/logits_calib.npy', logits_full)
+            np.save(f'{args.outpath}/scores_calib.npy', scores_full)
+            np.save(f'{args.outpath}/gt_label_calib.npy', true_class)
+            
             # test several significance levels, apply later only the inputed one
             tau_hat = np.quantile(true_class_conformity_score, 1-alpha_list, method='higher')
             print(f'conformity-score threshold for alpha={args.alpha}: {tau_hat[select_id]:.3f}')
@@ -666,10 +677,12 @@ def main(args):
         ranking_list = [] # ranking of true class based on predicted scores
         argmax_list = []
         covered_list = []
+        scores_list = []
         for img_batch in tqdm.tqdm(test_loader):
             predictions = predict(detector, img_batch)
             predictions = apply_platt_scaling(predictions, Temp_hat)
             for pred in predictions:
+                scores_list.append(pred.scores.cpu().detach().numpy())
                 conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
                 # construct prediction set of every bbox
                 for cs, idxs, gt_label in zip(conformity_scores, sorted_idxs, pred.gt_labels): #loop over bboxes
@@ -694,6 +707,10 @@ def main(args):
             }
         with open(f'{args.outpath}/results_cp_cracks.json', 'w') as f:
             json.dump(results, f, indent = 6)
+
+        scores_full = np.concatenate(scores_list, axis=0)
+        np.save(f'{args.outpath}/scores_test.npy', scores_full)
+        np.save(f'{args.outpath}/gt_label_test.npy', np.array(target_list))
 
             
             

@@ -301,6 +301,10 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     mlvl_scores = torch.cat(mlvl_scores)
     mlvl_score_factors = torch.cat(mlvl_score_factors)
     mlvl_logits = torch.cat(mlvl_logits)
+
+    # apply scale factors, e.g. centerness for anchor-free detectors
+    if with_score_factors:
+        mlvl_scores = (mlvl_scores.T * mlvl_score_factors).T
     
     # assign a ground truth label to each predicted bbox
     assign_result = model.bbox_head.assigner.assign(InstanceData(priors=bboxes), num_level_priors,
@@ -325,7 +329,6 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     mlvl_logits = mlvl_logits[topk_idxs]
     mlvl_labels = labels[topk_idxs]
     gt_labels = gt_labels[topk_idxs]
-    mlvl_score_factors = mlvl_score_factors[topk_idxs]
     bboxes = bboxes[topk_idxs]
         
     results = InstanceData()
@@ -335,9 +338,6 @@ def _predict_by_feat_single(model, gt_instances, gt_instances_ignore, cls_score_
     results.labels = mlvl_labels
     results.gt_labels = gt_labels
 
-    # apply scale factors, e.g. centerness for anchor-free detectors
-    if with_score_factors:
-        results.scores = (results.scores.T * mlvl_score_factors).T
 
     # filter small size bboxes
     if cfg.get('min_bbox_size', -1) >= 0:

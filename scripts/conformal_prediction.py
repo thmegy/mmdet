@@ -398,7 +398,7 @@ def platt_scaling(predictions, max_iters=10, lr=0.01, epsilon=0.01):
 
     optimizer = torch.optim.SGD([Temp], lr=lr)
     for iter in range(max_iters):
-        Temp_old = Temp
+        Temp_old = Temp.clone()
         for pred in predictions:
             x, target = pred.logits, pred.gt_labels # convert scores to logits
             optimizer.zero_grad()
@@ -407,6 +407,7 @@ def platt_scaling(predictions, max_iters=10, lr=0.01, epsilon=0.01):
             loss = nll_criterion(out, target.long())
             loss.backward()
             optimizer.step()
+
         if torch.abs(Temp_old - Temp).max() < epsilon:
             break
     

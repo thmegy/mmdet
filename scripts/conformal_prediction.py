@@ -616,7 +616,7 @@ def main(args):
             Temp_hat = platt_scaling(predictions)
             print(f'Optimal Temperature scaling: {Temp_hat.tolist()}')
 
-            predictions = apply_platt_scaling(predictions, Temp_hat)
+#            predictions = apply_platt_scaling(predictions, Temp_hat)
             
             # CP calibration
             conformity_score_list = []
@@ -640,11 +640,11 @@ def main(args):
             np.save(f'{args.outpath}/scores_calib.npy', scores_full)
             np.save(f'{args.outpath}/gt_label_calib.npy', true_class)
             
+            
             # test several significance levels, apply later only the inputed one
             tau_hat = np.quantile(true_class_conformity_score, 1-alpha_list, method='higher')
             print(f'conformity-score threshold for alpha={args.alpha}: {tau_hat[select_id]:.3f}')
 
-            true_class = np.concatenate(gt_label_list)
             tau_hat_dict = { 'classes':list(config.classes)+['empty'], 'temperature_scaling':Temp_hat.cpu().detach().tolist(), 'significance':alpha_list.tolist(), 'overall':tau_hat.tolist()}
             tau_hat_cls_list = []
             for icls, cls in enumerate(list(config.classes)+['empty']):
@@ -680,15 +680,16 @@ def main(args):
         scores_list = []
         for img_batch in tqdm.tqdm(test_loader):
             predictions = predict(detector, img_batch)
-            predictions = apply_platt_scaling(predictions, Temp_hat)
+#            predictions = apply_platt_scaling(predictions, Temp_hat)
             for pred in predictions:
                 scores_list.append(pred.scores.cpu().detach().numpy())
                 conformity_scores, sorted_idxs = compute_conformity_scores(pred.scores)
                 # construct prediction set of every bbox
                 for cs, idxs, gt_label in zip(conformity_scores, sorted_idxs, pred.gt_labels): #loop over bboxes
                     if args.per_class_thr:
-                        tau_hat = tau_hat[idxs]
-                    prediction_set = idxs[cs<=tau_hat].cpu().detach().numpy()
+                        prediction_set = idxs[cs<=tau_hat[idxs]].cpu().detach().numpy()
+                    else:
+                        prediction_set = idxs[cs<=tau_hat].cpu().detach().numpy()
 
                     # do not allow empty sets
                     if len(prediction_set) == 0:
@@ -711,6 +712,7 @@ def main(args):
         scores_full = np.concatenate(scores_list, axis=0)
         np.save(f'{args.outpath}/scores_test.npy', scores_full)
         np.save(f'{args.outpath}/gt_label_test.npy', np.array(target_list))
+
 
             
             

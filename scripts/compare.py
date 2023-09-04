@@ -12,7 +12,7 @@ https://gitlab.logiroad.com/theom/ai-vs-videocoding/blob/master/scripts/utils/vi
 - ref: path to a folder that contains the JSON annotations you want to use as a ground-truth
 (in L2R fomat).
 - geo: path to the geolocation CSV file.
-- threshold_distance: Threshold in meters below which two reported degradations are deemed to be the same. Defaults to 10 meters if no value was given
+- distance_threshold: Threshold in meters below which two reported degradations are deemed to be the same. Defaults to 10 meters if no value was given
 - score_thresholds: Path to a list of score thresholds for each degradation class in a JSON file.
 
 This script will display the following metrics:
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     if not args.distance_threshold:
         distance_threshold = DEFAULT_DISTANCE_THRESHOLD
     else:
-        distance_threshold = str(args.distance_threshold)
+        distance_threshold = float(args.distance_threshold)
 
     # Performing the comparison
     comparison_results = comparator.compare(

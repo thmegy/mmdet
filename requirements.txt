@@ -1,0 +1,2 @@
+pandas
+git+ssh://git@Gitlab.Logiroad.com:2316/v.papelard/annotations-comparator.git

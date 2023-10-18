@@ -9,6 +9,21 @@ import tqdm
 import numpy as np
 import json
 
+threshold_dict = {
+    'Arrachement_pelade':0.27,
+    'Faiencage':0.35,
+    'Nid_de_poule':0.41,
+    'Transversale':0.36,
+    'Longitudinale':0.41,
+    'Pontage_de_fissures':0.47,
+    'Remblaiement_de_tranchees':0.44,
+    'Raccord_de_chaussee':0.35,
+    'Comblage_de_trou_ou_Projection_d_enrobe':0.30,
+    'Bouche_a_clef':0.35,
+    'Grille_avaloir':0.35,
+    'Regard_tampon':0.35,
+
+    }
 
 def main(args):
     device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
@@ -22,19 +37,10 @@ def main(args):
     )
 
     # get list of images in directory
-    images = glob.glob(f'{args.im_dir}/*jpg')
+    images = glob.glob(f'{args.im_dir}/*png')
 
-    # perform inference
-    # split images into batches to run the inference
-    img_batch_size = 3
-    img_n_batch = len(images) // img_batch_size
-    img_batches = np.array_split( np.array(images), img_n_batch )
-    predictions = []
-    for img_batch in tqdm.tqdm(img_batches):
-        predictions = predictions + mmdet.apis.inference_detector(detector, img_batch.tolist())
-
-    
-    for im, preds in tqdm.tqdm(zip(images, predictions)): # loop on images
+    for im in tqdm.tqdm(images):
+        preds = mmdet.apis.inference_detector(detector, im) # run inference
         image = cv.imread(im)
         outpath = im.replace(args.im_dir, args.viz_dir)
         ann = []
@@ -46,13 +52,15 @@ def main(args):
         for bbox, score, label in zip(bboxes, scores, labels):
             x1, y1, x2, y2 = bbox
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-            if score > args.score_threshold:
-                cv.rectangle(image, (x1, y1), (x2, y2), (0, 0, 0), 1)
-                cv.putText(image, f'{classes[label]}, {score:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv.LINE_AA)
+#            if score > args.score_threshold:
+            if score > threshold_dict[classes[label]]:
+                if args.save_image:
+                    cv.rectangle(image, (x1, y1), (x2, y2), (0, 0, 0), 1)
+                    cv.putText(image, f'{classes[label]}, {score:.2f}', (x1 ,y1), cv.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1, cv.LINE_AA)
                 if args.yolo_format:
                     image_width = image.shape[1]
                     image_height = image.shape[0]
-                    ann.append(f'{label} {(x1+x2)/2/image_width} {(y1+y2)/2/image_height} {(x2-x1)/image_width} {(y2-y1)/image_height}')
+                    ann.append(f'{label} {(x1+x2)/2/image_width:.3f} {(y1+y2)/2/image_height:.3f} {(x2-x1)/image_width:.3f} {(y2-y1)/image_height:.3f}')
                 else:
                     ann.append(f'{x1} {y1} {x2} {y2}')                            
 
@@ -60,7 +68,7 @@ def main(args):
             cv.imwrite(outpath, image)
 
             
-        with open(outpath.replace('.jpg', '.txt'), 'w') as f:
+        with open(outpath.replace('.png', '.txt'), 'w') as f:
             for a in ann:
                 f.write(f'{a}\n')
 

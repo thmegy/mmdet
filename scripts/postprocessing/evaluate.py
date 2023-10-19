@@ -7,6 +7,10 @@ import os
 import cv2 as cv
 import tqdm
 import numpy as np
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+
 
 
 def get_iou(bbox1, bbox2):
@@ -58,6 +62,86 @@ def compute_average_precision(iou, score, threshold_iou):
     return ap, precision[pos_inds], score[sort_inds][pos_inds], # AP, [precision_array], [score of true positives]
 
 
+
+def compute_average_recall(scores_list, score_thrs):
+    '''
+    Compute recall for every threshold in <score_thrs>, and corresponding average recall.
+    Inputs:
+    scores_list: list of list of pred-bboxes scores matched to gt bboxes (N_gt_bboxes, n_matched)
+    '''
+    if len(scores_list) == 0:
+        return np.nan, []
+
+    # loop in score thresholds, at each iteration compute number of FN
+    recall_list = []
+    for score_thr in score_thrs:
+        #loop over gt bboxes
+        tp_count = 0
+        fp_count = 0
+        for gt_matched_scores in scores_list:
+            if (np.array(gt_matched_scores) >= score_thr).sum() > 0:
+                tp_count +=1
+            else:
+                fp_count += 1
+        recall = tp_count / (tp_count+fp_count) # TP / (TP+FN)
+        recall_list.append(recall)
+
+    ar = sum(recall_list) / len(recall_list)
+    return ar, recall_list
+
+
+
+def plot_precision_recall(results, outpath):
+    figpr, axpr = plt.subplots() # precision-recall summary plot
+    axpr.set_xlabel('recall')
+    axpr.set_ylabel('precision')
+
+    figf1, axf1 = plt.subplots(figsize=(8,6)) # F1-score summary plot
+    axf1.set_xlabel('score threshold')
+    axf1.set_ylabel('F1-score')
+
+    max_f1_dict = {}
+    max_sthr_dict = {}
+    
+    for cls, cls_dict in results.items():
+        sthr_list = np.array(cls_dict['score_thrs'])
+        precision_list = np.array(cls_dict['precision'])
+        recall_list = np.array(cls_dict['recall'])
+        f1_list = 2 * precision_list * recall_list / (precision_list+recall_list)
+
+        axpr.plot(recall_list, precision_list, label=cls, marker='o', markersize=4)
+        p = axf1.plot(sthr_list, f1_list, label=cls)
+        col = p[-1].get_color()
+
+        # get max f1 score and add to plot
+        if len(f1_list) > 0:
+            maxf1_id = np.argmax(f1_list)
+            xmax = sthr_list[maxf1_id]
+            ymax = f1_list[maxf1_id]
+            axf1.plot([xmax, xmax], [0, ymax], color=col, linestyle='--', linewidth=1)
+            axf1.plot([0, xmax], [ymax, ymax], color=col, linestyle='--', linewidth=1)
+            plt.text(xmax, 0, f'{xmax:.2f}', color=col, horizontalalignment='right', verticalalignment='top', rotation=45, fontsize='small')
+            plt.text(0, ymax, f'{ymax:.2f}', color=col, horizontalalignment='right', verticalalignment='center', fontsize='small')
+        else:
+            xmax, ymax = np.nan, np.nan
+        results[cls]['optimal F1'] = ymax
+        results[cls]['optimal score threshold'] = xmax
+
+    axpr.legend(bbox_to_anchor=(0.5, 1.2), loc='upper center', ncol=3, fontsize='small')
+    figpr.set_tight_layout(True)
+    figpr.savefig(f'{outpath}/precision_recall.png')
+
+    axf1.legend(bbox_to_anchor=(0.5, 1.2), loc='upper center', ncol=3, fontsize='medium')
+    axf1.set_xlim(0)
+    axf1.set_ylim(0)
+    figf1.set_tight_layout(True)
+    figf1.savefig(f'{outpath}/f1_score.png')
+
+    plt.close('all')
+
+    return results
+
+
     
 def main(args):
     detector = mmdet.apis.init_detector(
@@ -66,12 +150,13 @@ def main(args):
         device=f'cuda:{args.gpu_id}'
     )
     config = mmengine.Config.fromfile(args.config)
+    classes = config.classes
+    n_classes = len(classes)
     dataset_path = config.test_dataloader.dataset.data_root + config.test_dataloader.dataset.ann_file
     with open(dataset_path, "rt") as f_in:
         dataset = json.load(f_in)
         images_dir = config.test_dataloader.dataset.data_prefix['img']
 
-    n_classes = len(dataset['categories'])
 
     # Get gt bboxes 
     bboxes_per_class = []
@@ -89,9 +174,8 @@ def main(args):
     # loop over images
     iou_list = [[] for _ in range(n_classes)]
     score_list = [[] for _ in range(n_classes)]
-    for i, image_info in tqdm.tqdm(enumerate(dataset["images"])):
-        if i==100:
-            break
+    gt_matched_scores = [[] for _ in range(n_classes)] # list of list containing scores of predicted bboxes with iou > thr with each gt bbox, for every classes
+    for image_info in tqdm.tqdm(dataset["images"]):
         image_path = os.path.join(images_dir, image_info["file_name"])
         preds = mmdet.apis.inference_detector(detector, image_path)
 
@@ -110,9 +194,10 @@ def main(args):
             bboxes_cls = bboxes[mask_cls]
             scores_cls = scores[mask_cls]
 
+            gt_matched_scores_cls = [[] for _ in range(len(gt_bboxes))] # list of list containing scores of predicted bboxes with iou > thr with each gt bbox
             for bbox, score in zip(bboxes_cls, scores_cls):
                 max_iou = 0
-                for gt_bbox in gt_bboxes:
+                for igt, gt_bbox in enumerate(gt_bboxes):
                     x1_gt, y1_gt, width_gt, height_gt = gt_bbox
                     x2_gt = x1_gt + width_gt
                     y2_gt = y1_gt + height_gt
@@ -121,26 +206,44 @@ def main(args):
                     iou_tmp = get_iou(gt_bbox, bbox)
                     if iou_tmp > max_iou:
                         max_iou=iou_tmp
+                    if iou_tmp > args.iou_threshold:
+                        gt_matched_scores_cls[igt].append(score)
                 iou_list[ic].append(max_iou)
                 score_list[ic].append(score)
 
+            gt_matched_scores[ic] += gt_matched_scores_cls
 
-    for ic in range(n_classes):
+
+    results = {}
+    for ic, cls in enumerate(classes):
+        results[cls] = {}
         ap, precision_list, scores_tp = compute_average_precision(iou_list[ic], score_list[ic], args.iou_threshold)
-        print(ap)
+        ar, recall_list = compute_average_recall(gt_matched_scores[ic], scores_tp)
 
-    
+        results[cls]['ap'] = ap
+        results[cls]['ar'] = ar
+        results[cls]['score_thrs'] = scores_tp.tolist()
+        results[cls]['precision'] = precision_list.tolist()
+        results[cls]['recall'] = recall_list
+
+    results = plot_precision_recall(results, args.outpath)
+
+    with open(f'{args.outpath}/results.json', 'w') as fout:
+        json.dump(results, fout, indent = 6)
+
+        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="mmdetection config")
     parser.add_argument("--checkpoint", required=True, help="mmdetection checkpoint")
-#    parser.add_argument("--viz-dir", required=True, help="Directory where visualizations will be saved")
-    parser.add_argument("--score-threshold", type=float, default=0.5, help="Score threshold")
+    parser.add_argument("--outpath", required=True, help="path to directory where to save results")
     parser.add_argument("--iou-threshold", type=float, default=0.5, help="iou threshold")
     parser.add_argument("--gpu-id", default='0', help="ID of gpu to be used")
     args = parser.parse_args()
 
+    os.makedirs(args.outpath, exist_ok=True)
+    
     main(args)
 
 

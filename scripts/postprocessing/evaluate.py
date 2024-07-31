@@ -10,12 +10,50 @@ import numpy as np
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
+from sklearn.metrics import jaccard_score
 
 
 
-def get_iou(bbox1, bbox2):
-    """ Compute Intersection over Union between the two bboxes.
+def rle2mask(rle):
+    '''
+    Convert run-length encoding (RLE) to binary mask.
+    '''
+    rows, cols = rle['size']
+    
+    rlePairs = np.cumsum(np.array(rle['counts'])[:-1]).reshape(-1,2)
+    mask = np.zeros(rows*cols,dtype=np.uint8)
+    for start, end in rlePairs:
+        mask[start-1:end] = 255
+    mask = mask.reshape(cols, rows)
+    return mask.T
 
+
+
+def poly2mask(poly, height, width):
+    '''
+    Convert polygon to binary mask.
+    height (width): height (width) of the image the annotation belongs to.
+    '''
+    from pycocotools import maskutils
+    rle = maskutils.merge(maskutils.frPyObjects(poly, height, width))
+    mask = maskutils.decode(rle)
+    return mask
+
+
+
+def get_mask_iou(mask1, mask2):
+    """ 
+    Compute Intersection over Union between the two binary masks.
+    Use sklearn implementation of Jaccard similarity score:
+    https://scikit-learn.org/stable/modules/generated/sklearn.metrics.jaccard_score.html#sklearn.metrics.jaccard_score 
+    """
+    return jaccard_score(mask1, mask2, average='micro')
+
+
+
+def get_bbox_iou(bbox1, bbox2):
+    """ 
+    Compute Intersection over Union between the two bboxes.
     bbox1 and bbox2 are [x1, y1, x2, y2].
     """
     x_left = max(bbox1[0], bbox2[0])
@@ -69,9 +107,9 @@ def compute_average_recall(scores_list, score_thrs):
     Inputs:
     scores_list: list of list of pred-bboxes scores matched to gt bboxes (N_gt_bboxes, n_matched)
     '''
-    if len(scores_list) == 0:
+    if (len(scores_list) == 0) or (len(score_thrs) == 0):
         return np.nan, []
-
+    
     # loop in score thresholds, at each iteration compute number of FN
     recall_list = []
     for score_thr in score_thrs:
@@ -87,6 +125,7 @@ def compute_average_recall(scores_list, score_thrs):
         recall_list.append(recall)
 
     ar = sum(recall_list) / len(recall_list)
+
     return ar, recall_list
 
 
@@ -186,68 +225,109 @@ def main(args):
         device=f'cuda:{args.gpu_id}'
     )
     config = mmengine.Config.fromfile(args.config)
-    classes = config.classes
+
+
+    ###### TMP TEST
+    classes = mmdet.evaluation.functional.get_classes('coco')
+#    classes = config.classes
     n_classes = len(classes)
+
+
+
+
     dataset_path = config.test_dataloader.dataset.data_root + config.test_dataloader.dataset.ann_file
     with open(dataset_path, "rt") as f_in:
         dataset = json.load(f_in)
         images_dir = config.test_dataloader.dataset.data_prefix['img']
 
+    ### check if task is detection or instance segmentation
+    segmentation = False
+    if 'segmentation' in dataset["annotations"][0]:
+        task = True
+        
+    objects_per_class = [] # masks or bboxes, depending on task
+    if segmentation:
+        ### Get ground truth masks
+        for ic in range(n_classes):
+            masks_per_image = {}
+            for annot in dataset["annotations"]:
+                if annot['category_id'] == ic:
 
-    ### Get ground truth bboxes 
-    bboxes_per_class = []
-    for ic in range(n_classes):
-        bboxes_per_image = {}
-        for annot in dataset["annotations"]:
-            if annot['category_id'] == ic:
-                try:
-                    bboxes_per_image[annot["image_id"]].append(annot["bbox"])
-                except KeyError:
-                    bboxes_per_image[annot["image_id"]] = []
-                    bboxes_per_image[annot["image_id"]].append(annot["bbox"])
-        bboxes_per_class.append(bboxes_per_image)
+                    ## identify format of segmentation (RLE or polygon) and convert to mask
+                    if type(annot['segmentation']) == dict:
+                        mask = rle2mask(annot['segmentation'])
+                    else:
+                        height = dataset['images'][int(annot['image_id'])-1]['height']
+                        width = dataset['images'][int(annot['image_id'])-1]['width']
+                        mask = poly2mask(annot['segmentation'], height, width)
+                        
+                    try:
+                        masks_per_image[annot["image_id"]].append(mask)
+                    except KeyError:
+                        masks_per_image[annot["image_id"]] = []
+                        masks_per_image[annot["image_id"]].append(mask)
+            objects_per_class.append(masks_per_image)
+    else:
+        ### Get ground truth bboxes 
+        for ic in range(n_classes):
+            bboxes_per_image = {}
+            for annot in dataset["annotations"]:
+                if annot['category_id'] == ic:
+                    try:
+                        bboxes_per_image[annot["image_id"]].append(annot["bbox"])
+                    except KeyError:
+                        bboxes_per_image[annot["image_id"]] = []
+                        bboxes_per_image[annot["image_id"]].append(annot["bbox"])
+            objects_per_class.append(bboxes_per_image)
 
+            
     ### loop over images
     iou_list = [[] for _ in range(n_classes)]
     score_list = [[] for _ in range(n_classes)]
-    gt_matched_scores = [[] for _ in range(n_classes)] # list of list containing scores of predicted bboxes with iou > thr with each gt bbox, for every classes
-    inference_results = {'bboxes':[], 'scores':[], 'labels':[]}
+    gt_matched_scores = [[] for _ in range(n_classes)] # list of list containing scores of predicted objects (bboxes or masks) with iou > thr with each gt bbox, for every classes
+    inference_results = {'objects':[], 'scores':[], 'labels':[]}
     
     for image_info in tqdm.tqdm(dataset["images"]):
         image_path = os.path.join(images_dir, image_info["file_name"])
         preds = mmdet.apis.inference_detector(detector, image_path) ## inference
 
-        bboxes = preds.pred_instances.numpy()['bboxes']
+        if segmentation:
+            objects = preds.pred_instances.numpy()['masks']
+        else:
+            objects = preds.pred_instances.numpy()['bboxes']
         scores = preds.pred_instances.numpy()['scores']
         labels = preds.pred_instances.numpy()['labels']
 
-        inference_results['bboxes'].append(bboxes)
+        inference_results['objects'].append(objects)
         inference_results['scores'].append(scores)
         inference_results['labels'].append(labels)
 
         for ic in range(n_classes): # loop on classes
             try:
-                gt_bboxes = bboxes_per_class[ic][image_info["id"]]
+                gt_objects = objects_per_class[ic][image_info["id"]]
             except KeyError:
-                # No bbox on that image
-                gt_bboxes = []
+                # No object on that image
+                gt_objects = []
 
             mask_cls = labels == ic
-            bboxes_cls = bboxes[mask_cls]
+            objects_cls = objects[mask_cls]
             scores_cls = scores[mask_cls]
 
-            gt_matched_scores_cls = [[] for _ in range(len(gt_bboxes))] # list of list containing scores of predicted bboxes with iou > thr with each gt bbox
-            for bbox, score in zip(bboxes_cls, scores_cls):
+            gt_matched_scores_cls = [[] for _ in range(len(gt_objects))] # list of list containing scores of predicted objects with iou > thr with each gt bbox / mask
+            for obj, score in zip(objects_cls, scores_cls):
                 max_iou = 0
-                for igt, gt_bbox in enumerate(gt_bboxes):
-                    x1_gt, y1_gt, width_gt, height_gt = gt_bbox
+                for igt, gt_object in enumerate(gt_objects):
+                    x1_gt, y1_gt, width_gt, height_gt = gt_object
                     x2_gt = x1_gt + width_gt
                     y2_gt = y1_gt + height_gt
                     
-                    gt_bbox = x1_gt, y1_gt, x2_gt, y2_gt
-                    iou_tmp = get_iou(gt_bbox, bbox)
+                    gt_object = x1_gt, y1_gt, x2_gt, y2_gt
+                    if segmentation:
+                        iou_tmp = get_mask_iou(gt_object, obj)
+                    else:
+                        iou_tmp = get_bbox_iou(gt_object, obj)
                     if iou_tmp > max_iou:
-                        max_iou=iou_tmp
+                        max_iou = iou_tmp
                     if iou_tmp > args.iou_threshold:
                         gt_matched_scores_cls[igt].append(score)
                 iou_list[ic].append(max_iou)

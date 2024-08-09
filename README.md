@@ -20,7 +20,7 @@ cd ..
 
 You can launch a training on a single GPU with:
 ```
-python mmdetection/tools/train.py configs/<config-file> --work-dir outputs/<dir>
+python mmdetection/tools/train.py configs/<config-file> --work-dir outputs/<dir> --auto-scale-lr
 ```
 
 You can launch a training on a multiple GPUs with:
